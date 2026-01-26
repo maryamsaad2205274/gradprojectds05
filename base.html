@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}DentalLandmark{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <div class="logo-dot"></div>
+        <span>DentalLandmark</span>
+      </div>
+
+      <nav class="nav">
+        <a class="nav__item {% if active=='dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
+  <span class="nav__icon">🏠</span> Dashboard
+</a>
+
+<a class="nav__item {% if active=='new_analysis' %}is-active{% endif %}" href="{{ url_for('new_analysis') }}">
+  <span class="nav__icon">➕</span> New Analysis
+</a>
+
+<a class="nav__item {% if active=='cases' %}is-active{% endif %}" href="{{ url_for('history') }}">
+  <span class="nav__icon">📁</span> Cases
+</a>
+
+<a class="nav__item {% if active=='settings' %}is-active{% endif %}" href="{{ url_for('profile') }}">
+  <span class="nav__icon">⚙️</span> Settings
+</a>
+
+
+
+      </nav>
+
+      <div class="sidebar__footer">
+        <div class="userpill">
+          <div class="userpill__avatar">{{ (name or "D")[0] }}</div>
+          <div class="userpill__meta">
+            <div class="userpill__name">{{ name or "Doctor" }}</div>
+            <div class="userpill__role">Doctor</div>
+          </div>
+        </div>
+
+        <a class="logout" href="{{ url_for('logout') }}">Logout</a>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar__left">
+          <div class="crumb">Dashboard</div>
+        </div>
+        <div class="topbar__right">
+          <div class="search">
+            <input placeholder="Search…" />
+          </div>
+          <a class="topbar__btn" href="{{ url_for('profile') }}">Profile</a>
+        </div>
+      </header>
+
+      <section class="content">
+        {% block content %}{% endblock %}
+      </section>
+    </main>
+
+  </div>
+</body>
+</html>
