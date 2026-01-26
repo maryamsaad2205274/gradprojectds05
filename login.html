@@ -1,41 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Login | Ortho Landmark System</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login | DentalLandmark</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
-  <div class="container">
-    <div class="card">
-      <h1>Welcome Back</h1>
-      <p class="subtitle">Login to start a new orthodontic analysis.</p>
+<body class="auth-body">
 
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="messages">
-            {% for category, msg in messages %}
-              <div class="msg {{ category }}">{{ msg }}</div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      {% endwith %}
+  <div class="auth">
+    <!-- Left background panel -->
+    <div class="auth__left">
+      <div class="auth__overlay"></div>
 
-      <form method="POST" action="/login">
-        <label>Email</label>
-        <input type="email" name="email" placeholder="doctor@email.com" required>
+      <div class="auth__brand">
+        <div class="auth__logo"></div>
+        <div>
+          <div class="auth__name">DentalLandmark</div>
+          <div class="auth__tag">Ortho Soft-Tissue Landmark System</div>
+        </div>
+      </div>
 
-        <label>Password</label>
-        <input type="password" name="password" placeholder="••••••••" required>
+      <div class="auth__copy">
+        <h1>Clinical landmark detection, simplified.</h1>
+        <p>
+          Upload front & side photos, run AI detection, and generate overlays & reports
+          in a structured workflow.
+        </p>
 
-        <button class="btn" type="submit">Login</button>
-      </form>
+        <div class="auth__bullets">
+          <div class="bullet">✅ Secure login for doctors</div>
+          <div class="bullet">✅ Case history & result overlays</div>
+          <div class="bullet">✅ Fast upload + processing</div>
+        </div>
+      </div>
+    </div>
 
-      <div class="footer">
-        <span>Don't have an account?</span>
-        <a class="link-btn" href="/register">Register</a>
+    <!-- Right login panel -->
+    <div class="auth__right">
+      <div class="auth-card">
+        <h2>Welcome back</h2>
+        <p class="auth-sub">Login to start a new orthodontic analysis.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="messages">
+              {% for category, msg in messages %}
+                <div class="msg {{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('login') }}">
+          <label>Email</label>
+          <input type="email" name="email" required>
+
+          <label>Password</label>
+          <input type="password" name="password" required>
+
+          <button class="btn btn--primary" type="submit">Login</button>
+        </form>
+
+        <div class="auth-footer">
+          <span>Don’t have an account?</span>
+          <a class="link-btn" href="{{ url_for('register') }}">Register</a>
+        </div>
       </div>
     </div>
   </div>
+
 </body>
 </html>
