@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Case History{% endblock %}
+
+{% block content %}
+  <h1>Case History</h1>
+  <p class="subtitle">Your previous analysis cases.</p>
+
+  <div class="card2">
+    {% if cases and cases|length > 0 %}
+      <table style="width:100%; border-collapse:collapse;">
+        <tr style="text-align:left;">
+          <th>Case ID</th>
+          <th>Patient Code</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th>Action</th>
+        </tr>
+        {% for c in cases %}
+        <tr>
+          <td>{{ c.id }}</td>
+          <td>{{ c.patient_code or "-" }}</td>
+          <td>{{ c.status }}</td>
+          <td>{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td><a class="mini-link" href="{{ url_for('view_result', case_id=c.id) }}">View</a></td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p>No cases yet. Start a new analysis.</p>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">New Analysis</a>
+    {% endif %}
+  </div>
+{% endblock %}
