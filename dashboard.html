@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Dashboard | Ortho Landmark System</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">Ortho Landmark System</div>
+    <div class="top-actions">
+      <a class="navlink" href="/profile">Profile</a>
+      <a class="navlink" href="/logout">Logout</a>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="header">
+      <h1>Welcome, {{ name }}</h1>
+      <p class="subtitle">Choose an action to start or review orthodontic analyses.</p>
+    </div>
+
+    <div class="grid">
+      <a class="card-link" href="/new-analysis">
+        <div class="card2">
+          <h2>New Analysis</h2>
+          <p>Upload front & side images and run landmark detection.</p>
+        </div>
+      </a>
+
+      <a class="card-link" href="/history">
+        <div class="card2">
+          <h2>Case History</h2>
+          <p>View previous cases, results, and download reports.</p>
+        </div>
+      </a>
+
+      <a class="card-link" href="/profile">
+        <div class="card2">
+          <h2>Profile</h2>
+          <p>View your account information.</p>
+        </div>
+      </a>
+    </div>
+  </div>
+
+</body>
+</html>
