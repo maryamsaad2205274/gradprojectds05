@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Case History | Ortho Landmark System</title>
+ <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Ortho Landmark System</div>
+    <div class="top-actions">
+      <a class="navlink" href="/dashboard">Dashboard</a>
+      <a class="navlink" href="/logout">Logout</a>
+    </div>
+  </div>
+
+  <div class="page">
+    <h1>Case History</h1>
+    <p class="subtitle">All your previous analyses.</p>
+
+    <div class="card2">
+      <table style="width:100%; border-collapse: collapse;">
+        <tr style="text-align:left;">
+          <th>Case ID</th>
+          <th>Patient Code</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th>Action</th>
+        </tr>
+
+        {% for c in cases %}
+        <tr>
+          <td>{{ c.id }}</td>
+          <td>{{ c.patient_code or "-" }}</td>
+          <td>{{ c.status }}</td>
+          <td>{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td><a class="link-btn" href="/result/{{ c.id }}">View</a></td>
+        </tr>
+        {% endfor %}
+
+        {% if cases|length == 0 %}
+        <tr>
+          <td colspan="5">No cases yet. Go to “New Analysis”.</td>
+        </tr>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</body>
+</html>

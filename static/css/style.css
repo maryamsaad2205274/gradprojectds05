@@ -1,0 +1,126 @@
+* { box-sizing: border-box; font-family: Arial, sans-serif; }
+
+body {
+  margin: 0;
+  background: #f5f6fa;
+}
+
+.container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.card {
+  width: 420px;
+  background: #fff;
+  padding: 28px;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+}
+
+h1 { margin: 0 0 6px; font-size: 26px; }
+.subtitle { margin: 0 0 18px; color: #666; }
+
+label { display: block; margin: 14px 0 6px; font-weight: 600; }
+
+input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  outline: none;
+}
+
+input:focus { border-color: #999; }
+
+.btn {
+  width: 100%;
+  margin-top: 18px;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  background: #111;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:hover { opacity: 0.92; }
+
+.footer {
+  margin-top: 18px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  color: #555;
+}
+
+.link-btn {
+  text-decoration: none;
+  color: #111;
+  font-weight: 700;
+}
+
+.messages { margin: 10px 0 14px; }
+.msg {
+  padding: 10px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.msg.error { background: #ffe6e6; color: #a40000; }
+.msg.success { background: #e7ffe7; color: #046b04; }
+
+.topbar {
+  height: 60px;
+  background: #111;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+.brand { font-weight: 800; }
+
+
+
+.page {
+  padding: 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.top-actions {
+  display: flex;
+  gap: 14px;
+}
+
+.navlink {
+  color: white;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.navlink:hover { opacity: 0.85; }
+
+.header { margin: 14px 0 18px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.card2 {
+  background: white;
+  padding: 18px;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+}
+
+.card-link { text-decoration: none; color: inherit; }
+.card-link:hover .card2 { transform: translateY(-2px); transition: 0.2s; }
