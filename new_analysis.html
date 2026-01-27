@@ -1,6 +1,148 @@
 {% extends "base.html" %}
-{% block title %}History{% endblock %}
+{% block title %}New Analysis{% endblock %}
 
 {% block content %}
-  <h1>Case History</h1>
+
+<div class="na-head">
+  <div>
+    <h1 class="na-title">New Analysis</h1>
+    <p class="na-sub">Select a patient, upload front & side photos, then run landmark detection.</p>
+  </div>
+  <div class="na-actions">
+    <a class="btn btn--ghost" href="{{ url_for('history') }}">View Cases</a>
+  </div>
+</div>
+
+<div class="na-steps">
+  <div class="step is-active">
+    <div class="step__num">1</div>
+    <div class="step__text">
+      <div class="step__title">Select Patient</div>
+      <div class="step__hint">Enter patient code</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step__num">2</div>
+    <div class="step__text">
+      <div class="step__title">Upload Photos</div>
+      <div class="step__hint">Front + Side</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step__num">3</div>
+    <div class="step__text">
+      <div class="step__title">Run Detection</div>
+      <div class="step__hint">Generate overlays</div>
+    </div>
+  </div>
+</div>
+
+<form class="na-grid" action="{{ url_for('submit_analysis') }}" method="POST" enctype="multipart/form-data">
+
+  <!-- Left column: Patient + Upload -->
+  <div class="na-left">
+
+    <div class="panel">
+      <div class="panel__head">
+        <div>
+          <h2 class="panel__title">Step 1: Patient</h2>
+          <p class="panel__sub">Use a code to identify the case (optional but recommended).</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Patient Code</label>
+        <input class="input" type="text" name="patient_code" placeholder="e.g., P-001">
+        <div class="field__hint">Tip: Use your clinic’s patient ID format.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <div>
+          <h2 class="panel__title">Step 2: Upload Photos</h2>
+          <p class="panel__sub">Upload clear front + side images (JPG/PNG).</p>
+        </div>
+      </div>
+
+      <div class="upload-row">
+        <div class="upload-box">
+          <div class="upload-box__top">
+            <div class="upload-box__title">Front View</div>
+            <div class="upload-box__meta">JPG / PNG</div>
+          </div>
+
+          <input class="file" type="file" name="front" accept="image/*" required>
+          <div class="upload-box__hint">Upload a straight-facing photo.</div>
+        </div>
+
+        <div class="upload-box">
+          <div class="upload-box__top">
+            <div class="upload-box__title">Side View</div>
+            <div class="upload-box__meta">JPG / PNG</div>
+          </div>
+
+          <input class="file" type="file" name="side" accept="image/*" required>
+          <div class="upload-box__hint">Upload a profile photo (right/left side).</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel panel--actions">
+      <button id="runBtn" class="btn btn--primary" type="submit">Run Detection</button>
+
+      <a class="btn btn--ghost" href="{{ url_for('dashboard') }}">Cancel</a>
+    </div>
+
+  </div>
+
+  <!-- Right column: Quality checklist -->
+  <aside class="na-right">
+    <div class="panel">
+      <div class="panel__head">
+        <div>
+          <h2 class="panel__title">Quality Checks</h2>
+          <p class="panel__sub">Recommended before processing.</p>
+        </div>
+      </div>
+
+      <ul class="qc">
+        <li class="qc__item"><span class="qc__dot ok"></span> Face fully visible (no crop)</li>
+        <li class="qc__item"><span class="qc__dot ok"></span> Neutral expression</li>
+        <li class="qc__item"><span class="qc__dot ok"></span> Proper lighting (no heavy shadows)</li>
+        <li class="qc__item"><span class="qc__dot ok"></span> Front image is straight (no tilt)</li>
+        <li class="qc__item"><span class="qc__dot ok"></span> Side image is clear profile</li>
+        <li class="qc__item"><span class="qc__dot warn"></span> Avoid low resolution</li>
+      </ul>
+
+      <div class="qc-note">
+        If quality is poor, detection accuracy may decrease.
+      </div>
+    </div>
+  </aside>
+
+</form>
+<div id="loading" class="loading hidden">
+  <div class="loading__card">
+    <div class="spinner"></div>
+    <div class="loading__title">Analyzing images…</div>
+    <div class="loading__text">Please wait. This may take a few seconds.</div>
+  </div>
+</div>
+
+<script>
+  const form = document.querySelector(".na-grid");
+  const loading = document.getElementById("loading");
+  const runBtn = document.getElementById("runBtn");
+
+  form.addEventListener("submit", () => {
+    runBtn.disabled = true;
+    runBtn.innerText = "Processing…";
+    loading.classList.remove("hidden");
+  });
+</script>
+
 {% endblock %}
+
