@@ -33,6 +33,9 @@
   <span class="nav__icon">⚙️</span> Settings
 </a>
 
+<a class="nav__item {% if active=='patients' %}is-active{% endif %}" href="{{ url_for('patients') }}">
+  <span class="nav__icon">👥</span> Patients
+</a>
 
 
       </nav>
