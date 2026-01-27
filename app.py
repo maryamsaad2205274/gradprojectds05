@@ -63,6 +63,118 @@ class Patient(db.Model):
     doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     patient_code = db.Column(db.String(60), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
+    file_path = db.Column(db.String(300), nullable=False)  # e.g. static/reports/case_1_report.pdf
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+def generate_case_pdf(case, front, side, front_points, side_points):
+    os.makedirs("static/reports", exist_ok=True)
+    pdf_path = os.path.join("static", "reports", f"case_{case.id}_report.pdf")
+
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib.utils import ImageReader
+
+    c = canvas.Canvas(pdf_path, pagesize=A4)
+    width, height = A4
+
+    def header(title):
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(2*cm, height - 2*cm, title)
+
+        c.setFont("Helvetica", 10)
+        y = height - 2.8*cm
+        c.drawString(2*cm, y, f"Doctor: {session.get('user_name','Doctor')}")
+        y -= 0.55*cm
+        c.drawString(2*cm, y, f"Case ID: {case.id}")
+        y -= 0.55*cm
+        c.drawString(2*cm, y, f"Patient Code: {case.patient_code or '-'}")
+        y -= 0.55*cm
+        c.drawString(2*cm, y, f"Status: {case.status}")
+        y -= 0.55*cm
+        c.drawString(2*cm, y, f"Created At: {case.created_at.strftime('%Y-%m-%d %H:%M')}")
+        return y - 0.8*cm
+
+    def abs_path(rel_path):
+        if not rel_path:
+            return None
+        return os.path.join(BASE_DIR, rel_path.replace("/", os.sep))
+
+    def draw_image_block(img_path, title, y_start):
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(2*cm, y_start, title)
+        y = y_start - 0.6*cm
+
+        if img_path and os.path.exists(img_path):
+            max_w = width - 4*cm
+            max_h = 9*cm
+            img = ImageReader(img_path)
+            iw, ih = img.getSize()
+            scale = min(max_w/iw, max_h/ih)
+            w = iw * scale
+            h = ih * scale
+            c.drawImage(img, 2*cm, y - h, width=w, height=h, preserveAspectRatio=True, mask='auto')
+            y = y - h - 0.8*cm
+        else:
+            c.setFont("Helvetica", 10)
+            c.drawString(2*cm, y, "Image not available.")
+            y -= 1.0*cm
+        return y
+
+    def draw_coords_table(points, title, y_start):
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(2*cm, y_start, title)
+        y = y_start - 0.7*cm
+
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(2*cm, y, "ID")
+        c.drawString(4*cm, y, "X")
+        c.drawString(8*cm, y, "Y")
+        y -= 0.5*cm
+
+        c.setFont("Helvetica", 10)
+        row_h = 0.45*cm
+        for i, p in enumerate(points[:17], start=1):
+            if y < 2*cm:
+                c.showPage()
+                y = height - 2*cm
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(2*cm, y, title + " (cont.)")
+                y -= 0.9*cm
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(2*cm, y, "ID")
+                c.drawString(4*cm, y, "X")
+                c.drawString(8*cm, y, "Y")
+                y -= 0.5*cm
+                c.setFont("Helvetica", 10)
+
+            x_val = p[0] if isinstance(p, (list, tuple)) and len(p) > 0 else ""
+            y_val = p[1] if isinstance(p, (list, tuple)) and len(p) > 1 else ""
+
+            c.drawString(2*cm, y, str(i))
+            c.drawString(4*cm, y, str(x_val))
+            c.drawString(8*cm, y, str(y_val))
+            y -= row_h
+
+        return y - 0.6*cm
+
+    # Page 1
+    y = header("DentalLandmark — Case Report")
+    front_img = abs_path(front.overlay_path) if front else None
+    side_img = abs_path(side.overlay_path) if side else None
+    y = draw_image_block(front_img, "Front Overlay", y)
+    y = draw_image_block(side_img, "Side Overlay", y)
+
+    # Page 2
+    c.showPage()
+    y = header("Landmark Coordinates")
+    y = draw_coords_table(front_points, "Front Landmarks (first 17)", y)
+    y = draw_coords_table(side_points, "Side Landmarks (first 17)", y)
+
+    c.save()
+    return pdf_path
 
 
 def login_required(route_function):
@@ -175,13 +287,114 @@ def new_analysis():
 @app.route("/history")
 @login_required
 def history():
-    cases = Case.query.filter_by(doctor_id=session["user_id"]).order_by(Case.created_at.desc()).all()
-    return render_template("history.html", name=session.get("user_name"), cases=cases, active="cases")
+    doctor_id = session["user_id"]
 
-@app.route("/profile")
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "ALL").strip().upper()
+
+    query = Case.query.filter_by(doctor_id=doctor_id)
+
+    if status != "ALL":
+        query = query.filter(Case.status == status)
+
+    if q:
+        # Search by patient_code OR by case id if q is numeric
+        if q.isdigit():
+            query = query.filter(Case.id == int(q))
+        else:
+            query = query.filter(Case.patient_code.ilike(f"%{q}%"))
+
+    cases = query.order_by(Case.created_at.desc()).all()
+
+    # counts for filter chips
+    counts = {
+        "ALL": Case.query.filter_by(doctor_id=doctor_id).count(),
+        "COMPLETED": Case.query.filter_by(doctor_id=doctor_id, status="COMPLETED").count(),
+        "PENDING": Case.query.filter_by(doctor_id=doctor_id, status="PENDING").count(),
+        "FAILED": Case.query.filter_by(doctor_id=doctor_id, status="FAILED").count(),
+    }
+
+    return render_template(
+        "history.html",
+        name=session.get("user_name"),
+        active="cases",
+        cases=cases,
+        q=q,
+        status=status,
+        counts=counts
+    )
+@app.route("/case/<int:case_id>/delete", methods=["POST"])
+@login_required
+def delete_case(case_id):
+    case = Case.query.get_or_404(case_id)
+
+    # Security: only owner
+    if case.doctor_id != session["user_id"]:
+        flash("Not allowed.", "error")
+        return redirect(url_for("history"))
+
+    # Delete related records first
+    Result.query.filter_by(case_id=case_id).delete()
+    Image.query.filter_by(case_id=case_id).delete()
+
+    db.session.delete(case)
+    db.session.commit()
+
+    flash("Case deleted.", "success")
+    return redirect(url_for("history"))
+
+
+@app.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
-    return render_template("profile.html", name=session.get("user_name"), active="settings")
+    user = User.query.get(session["user_id"])
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+
+        # Update name
+        if action == "update_name":
+            new_name = request.form.get("name", "").strip()
+            if not new_name:
+                flash("Name cannot be empty.", "error")
+                return redirect(url_for("profile"))
+
+            user.name = new_name
+            db.session.commit()
+            session["user_name"] = new_name
+            flash("Profile updated.", "success")
+            return redirect(url_for("profile"))
+
+        # Change password
+        if action == "change_password":
+            current_pw = request.form.get("current_password", "")
+            new_pw = request.form.get("new_password", "")
+            confirm_pw = request.form.get("confirm_password", "")
+
+            if not check_password_hash(user.password_hash, current_pw):
+                flash("Current password is incorrect.", "error")
+                return redirect(url_for("profile"))
+
+            if len(new_pw) < 6:
+                flash("New password must be at least 6 characters.", "error")
+                return redirect(url_for("profile"))
+
+            if new_pw != confirm_pw:
+                flash("New passwords do not match.", "error")
+                return redirect(url_for("profile"))
+
+            user.password_hash = generate_password_hash(new_pw)
+            db.session.commit()
+            flash("Password updated successfully.", "success")
+            return redirect(url_for("profile"))
+
+    return render_template(
+        "profile.html",
+        name=session.get("user_name"),
+        active="settings",
+        user=user
+    )
+
 @app.route("/patients", methods=["GET", "POST"])
 @login_required
 def patients():
@@ -265,11 +478,10 @@ def submit_analysis():
         flash("Please upload both front and side images.", "error")
         return redirect(url_for("new_analysis"))
 
-    # Ensure folders exist
     os.makedirs("static/uploads", exist_ok=True)
     os.makedirs("static/results", exist_ok=True)
 
-    # Create case
+    # 1) Create case as PENDING immediately
     new_case = Case(
         doctor_id=session["user_id"],
         patient_code=patient_code,
@@ -278,50 +490,59 @@ def submit_analysis():
     db.session.add(new_case)
     db.session.commit()
 
-    # Save images with unique names
-    front_name = f"{new_case.id}_front_{uuid.uuid4().hex}.jpg"
-    side_name = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
+    try:
+        # 2) Save images
+        front_name = f"{new_case.id}_front_{uuid.uuid4().hex}.jpg"
+        side_name  = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
 
-    front_path = os.path.join("static/uploads", front_name)
-    side_path = os.path.join("static/uploads", side_name)
+        front_path = os.path.join("static/uploads", front_name)
+        side_path  = os.path.join("static/uploads", side_name)
 
-    front_file.save(front_path)
-    side_file.save(side_path)
+        front_file.save(front_path)
+        side_file.save(side_path)
 
-    # Save image records
-    db.session.add(Image(case_id=new_case.id, view_type="FRONT", file_path=front_path))
-    db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_path))
-    db.session.commit()
+        db.session.add(Image(case_id=new_case.id, view_type="FRONT", file_path=front_path))
+        db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_path))
+        db.session.commit()
 
-    # Predict landmarks (dummy for now)
-    front_points = predict_landmarks(front_path)
-    side_points = predict_landmarks(side_path)
+        # 3) Predict landmarks
+        front_points = predict_landmarks(front_path)
+        side_points  = predict_landmarks(side_path)
 
-    # Draw overlays
-    front_overlay = os.path.join("static/results", f"{new_case.id}_front_overlay.jpg")
-    side_overlay = os.path.join("static/results", f"{new_case.id}_side_overlay.jpg")
+        # 4) Draw overlays
+        front_overlay = os.path.join("static/results", f"{new_case.id}_front_overlay.jpg")
+        side_overlay  = os.path.join("static/results", f"{new_case.id}_side_overlay.jpg")
 
-    draw_points(front_path, front_points, front_overlay)
-    draw_points(side_path, side_points, side_overlay)
+        draw_points(front_path, front_points, front_overlay)
+        draw_points(side_path, side_points, side_overlay)
 
-    # Save results
-    db.session.add(Result(
-        case_id=new_case.id,
-        view_type="FRONT",
-        landmarks_json=json.dumps(front_points),
-        overlay_path=front_overlay
-    ))
-    db.session.add(Result(
-        case_id=new_case.id,
-        view_type="SIDE",
-        landmarks_json=json.dumps(side_points),
-        overlay_path=side_overlay
-    ))
+        # 5) Save results
+        db.session.add(Result(
+            case_id=new_case.id,
+            view_type="FRONT",
+            landmarks_json=json.dumps(front_points),
+            overlay_path=front_overlay
+        ))
+        db.session.add(Result(
+            case_id=new_case.id,
+            view_type="SIDE",
+            landmarks_json=json.dumps(side_points),
+            overlay_path=side_overlay
+        ))
 
-    new_case.status = "COMPLETED"
-    db.session.commit()
+        new_case.status = "COMPLETED"
+        db.session.commit()
 
-    return redirect(url_for("view_result", case_id=new_case.id))
+        return redirect(url_for("view_result", case_id=new_case.id))
+
+    except Exception as e:
+        # If anything fails, mark FAILED
+        new_case.status = "FAILED"
+        db.session.commit()
+
+        flash(f"Analysis failed: {str(e)}", "error")
+        return redirect(url_for("history"))
+
 
 
 @app.route("/result/<int:case_id>")
@@ -336,6 +557,12 @@ def view_result(case_id):
 
     front = Result.query.filter_by(case_id=case_id, view_type="FRONT").first()
     side = Result.query.filter_by(case_id=case_id, view_type="SIDE").first()
+    # 🔹 Get original uploaded images (for landmark editing)
+    front_img = Image.query.filter_by(case_id=case_id, view_type="FRONT").first()
+    side_img  = Image.query.filter_by(case_id=case_id, view_type="SIDE").first()
+
+    front_original = "/" + front_img.file_path if front_img else None
+    side_original  = "/" + side_img.file_path if side_img else None
 
     # Parse landmarks JSON safely
     def parse_points(r):
@@ -350,23 +577,25 @@ def view_result(case_id):
     side_points = parse_points(side)
 
     return render_template(
-        "result.html",
-        name=session.get("user_name"),
-        active="cases",
-        case=case,
-        front_overlay="/" + front.overlay_path if front else None,
-        side_overlay="/" + side.overlay_path if side else None,
-        front_points=front_points,
-        side_points=side_points
-    )
+    "result.html",
+    name=session.get("user_name"),
+    active="cases",
+    case=case,
+    front_overlay="/" + front.overlay_path if front else None,
+    side_overlay="/" + side.overlay_path if side else None,
+    front_points=front_points,
+    side_points=side_points,
+    front_original=front_original,
+    side_original=side_original
+)
+
+
 @app.route("/report/<int:case_id>")
 @login_required
 def download_report(case_id):
     case = Case.query.get_or_404(case_id)
-
-    # Security: ensure doctor owns the case
     if case.doctor_id != session["user_id"]:
-        flash("You are not allowed to download this report.", "error")
+        flash("Not allowed.", "error")
         return redirect(url_for("dashboard"))
 
     front = Result.query.filter_by(case_id=case_id, view_type="FRONT").first()
@@ -383,119 +612,86 @@ def download_report(case_id):
     front_points = parse_points(front)
     side_points = parse_points(side)
 
-    # Output folder
-    os.makedirs("static/reports", exist_ok=True)
-    pdf_path = os.path.join("static", "reports", f"case_{case_id}_report.pdf")
+    # Generate pdf file
+    pdf_path = generate_case_pdf(case, front, side, front_points, side_points)
 
-    # Build absolute paths for images
-    def abs_path(rel_path):
-        if not rel_path:
-            return None
-        # rel_path stored like "static/results/xxx.jpg"
-        return os.path.join(BASE_DIR, rel_path.replace("/", os.sep))
-
-    front_img = abs_path(front.overlay_path) if front else None
-    side_img = abs_path(side.overlay_path) if side else None
-
-    # ---------- PDF generation ----------
-    c = canvas.Canvas(pdf_path, pagesize=A4)
-    width, height = A4
-
-    def header(title):
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(2*cm, height - 2*cm, title)
-
-        c.setFont("Helvetica", 10)
-        y = height - 2.8*cm
-        c.drawString(2*cm, y, f"Doctor: {session.get('user_name','Doctor')}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Case ID: {case.id}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Patient Code: {case.patient_code or '-'}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Status: {case.status}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Created At: {case.created_at.strftime('%Y-%m-%d %H:%M')}")
-        return y - 0.8*cm
-
-    def draw_image_block(img_path, title, y_start):
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(2*cm, y_start, title)
-
-        y = y_start - 0.6*cm
-        if img_path and os.path.exists(img_path):
-            max_w = width - 4*cm
-            max_h = 9*cm
-
-            img = ImageReader(img_path)
-            iw, ih = img.getSize()
-            scale = min(max_w/iw, max_h/ih)
-
-            w = iw * scale
-            h = ih * scale
-            c.drawImage(img, 2*cm, y - h, width=w, height=h, preserveAspectRatio=True, mask='auto')
-            y = y - h - 0.8*cm
-        else:
-            c.setFont("Helvetica", 10)
-            c.drawString(2*cm, y, "Image not available.")
-            y -= 1.0*cm
-        return y
-
-    def draw_coords_table(points, title, y_start):
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(2*cm, y_start, title)
-        y = y_start - 0.7*cm
-
-        # table header
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(2*cm, y, "ID")
-        c.drawString(4*cm, y, "X")
-        c.drawString(8*cm, y, "Y")
-        y -= 0.5*cm
-
-        c.setFont("Helvetica", 10)
-        row_h = 0.45*cm
-        for i, p in enumerate(points[:17], start=1):
-            # new page if needed
-            if y < 2*cm:
-                c.showPage()
-                y = height - 2*cm
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(2*cm, y, title + " (cont.)")
-                y -= 0.9*cm
-                c.setFont("Helvetica-Bold", 10)
-                c.drawString(2*cm, y, "ID")
-                c.drawString(4*cm, y, "X")
-                c.drawString(8*cm, y, "Y")
-                y -= 0.5*cm
-                c.setFont("Helvetica", 10)
-
-            x_val = p[0] if isinstance(p, (list, tuple)) and len(p) > 0 else ""
-            y_val = p[1] if isinstance(p, (list, tuple)) and len(p) > 1 else ""
-
-            c.drawString(2*cm, y, str(i))
-            c.drawString(4*cm, y, str(x_val))
-            c.drawString(8*cm, y, str(y_val))
-            y -= row_h
-
-        return y - 0.6*cm
-
-    # Page 1: Summary + images
-    y = header("DentalLandmark — Case Report")
-    y = draw_image_block(front_img, "Front Overlay", y)
-    y = draw_image_block(side_img, "Side Overlay", y)
-
-    # Page 2+: tables
-    c.showPage()
-    y = header("Landmark Coordinates")
-    y = draw_coords_table(front_points, "Front Landmarks (first 17)", y)
-    y = draw_coords_table(side_points, "Side Landmarks (first 17)", y)
-
-    c.save()
-    # ---------- end PDF generation ----------
+    # Save/Update report record
+    existing = Report.query.filter_by(case_id=case_id).first()
+    if existing:
+        existing.file_path = pdf_path
+        existing.created_at = datetime.utcnow()
+    else:
+        db.session.add(Report(case_id=case_id, file_path=pdf_path))
+    db.session.commit()
 
     return send_file(pdf_path, as_attachment=True, download_name=f"case_{case_id}_report.pdf")
 
+@app.route("/reports")
+@login_required
+def reports():
+    doctor_id = session["user_id"]
+
+    # show only cases belonging to this doctor
+    cases = Case.query.filter_by(doctor_id=doctor_id).order_by(Case.created_at.desc()).all()
+
+    # map case_id -> report
+    reps = Report.query.join(Case, Report.case_id == Case.id).filter(Case.doctor_id == doctor_id).all()
+    rep_map = {r.case_id: r for r in reps}
+
+    return render_template(
+        "reports.html",
+        name=session.get("user_name"),
+        active="reports",
+        cases=cases,
+        rep_map=rep_map
+    )
+@app.route("/case/<int:case_id>/update-landmarks", methods=["POST"])
+@login_required
+def update_landmarks(case_id):
+    case = Case.query.get_or_404(case_id)
+    if case.doctor_id != session["user_id"]:
+        flash("Not allowed.", "error")
+        return redirect(url_for("dashboard"))
+
+    view_type = request.form.get("view_type", "").strip().upper()  # FRONT or SIDE
+    points_json = request.form.get("points_json", "").strip()
+
+    if view_type not in ["FRONT", "SIDE"]:
+        flash("Invalid view type.", "error")
+        return redirect(url_for("view_result", case_id=case_id))
+
+    # Validate JSON
+    try:
+        points = json.loads(points_json)
+        if not isinstance(points, list) or len(points) == 0:
+            raise ValueError("Empty points")
+    except Exception:
+        flash("Invalid landmarks data.", "error")
+        return redirect(url_for("view_result", case_id=case_id))
+
+    # Update result row
+    res = Result.query.filter_by(case_id=case_id, view_type=view_type).first()
+    if not res:
+        flash("Result not found for this view.", "error")
+        return redirect(url_for("view_result", case_id=case_id))
+
+    res.landmarks_json = json.dumps(points)
+
+    # Re-draw overlay using original uploaded image
+    img_row = Image.query.filter_by(case_id=case_id, view_type=view_type).first()
+    if not img_row:
+        flash("Original image not found.", "error")
+        return redirect(url_for("view_result", case_id=case_id))
+
+    os.makedirs("static/results", exist_ok=True)
+    new_overlay = os.path.join("static/results", f"{case_id}_{view_type.lower()}_overlay.jpg")
+
+    draw_points(img_row.file_path, points, new_overlay)
+    res.overlay_path = new_overlay
+
+    db.session.commit()
+    flash(f"{view_type} landmarks updated.", "success")
+    return redirect(url_for("view_result", case_id=case_id))
 
 @app.route("/logout")
 @login_required
