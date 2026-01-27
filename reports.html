@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+
+<div class="r-head">
+  <div>
+    <h1 class="r-title">Reports</h1>
+    <p class="r-sub">Generate and download PDF reports for your cases.</p>
+  </div>
+</div>
+
+<div class="panel">
+  {% if cases and cases|length > 0 %}
+    <div class="table table--reports">
+      <div class="table__head table__head--reports">
+        <div>Case</div>
+        <div>Patient</div>
+        <div>Status</div>
+        <div>Report</div>
+        <div class="t-right">Action</div>
+      </div>
+
+      {% for c in cases %}
+        {% set rep = rep_map.get(c.id) %}
+        <div class="table__row table__row--reports">
+          <div class="t-strong">#{{ c.id }}</div>
+          <div class="t-muted">{{ c.patient_code or "-" }}</div>
+
+          <div>
+            <span class="badge {% if c.status=='COMPLETED' %}badge--ok{% elif c.status=='PENDING' %}badge--warn{% else %}badge--bad{% endif %}">
+              {{ c.status }}
+            </span>
+          </div>
+
+          <div class="t-muted">
+            {% if rep %}Generated{% else %}Not generated{% endif %}
+          </div>
+
+          <div class="t-right r-actions">
+            <a class="btn btn--ghost btn--small" href="{{ url_for('view_result', case_id=c.id) }}">Open</a>
+            <a class="btn btn--primary btn--small" href="{{ url_for('download_report', case_id=c.id) }}">
+              {% if rep %}Download{% else %}Generate{% endif %}
+            </a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No cases yet</div>
+      <div class="empty__text">Create a new analysis to generate reports.</div>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}
