@@ -1,39 +1,111 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Results | Ortho Landmark System</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-  <div class="topbar">
-    <div class="brand">Ortho Landmark System</div>
-    <div class="top-actions">
-      <a class="navlink" href="/dashboard">Dashboard</a>
-      <a class="navlink" href="/history">History</a>
-      <a class="navlink" href="/logout">Logout</a>
-    </div>
+{% extends "base.html" %}
+{% block title %}Case #{{ case.id }}{% endblock %}
+
+{% block content %}
+
+<div class="case-head">
+  <div>
+    <h1 class="case-title">Case #{{ case.id }}</h1>
+    <p class="case-sub">
+      {% if case.patient_code %}<b>Patient:</b> {{ case.patient_code }} • {% endif %}
+      <b>Status:</b>
+      <span class="badge {% if case.status=='COMPLETED' %}badge--ok{% elif case.status=='PENDING' %}badge--warn{% else %}badge--bad{% endif %}">
+        {{ case.status }}
+      </span>
+      <span class="case-dot">•</span>
+      <span class="case-muted">{{ case.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+    </p>
   </div>
 
-  <div class="page">
-    <h1>Analysis Results</h1>
-    <p class="subtitle">Case #{{ case_id }} ({{ status }})</p>
+  <div class="case-actions">
+    <a class="btn btn--ghost" href="{{ url_for('history') }}">Back to Cases</a>
+    <a class="btn btn--primary" href="{{ url_for('download_report', case_id=case.id) }}">Download Report (PDF)</a>
 
-    <div class="grid">
-      <div class="card2">
-        <h2>Front Result</h2>
-        <img src="{{ front_overlay }}" style="width:100%; border-radius:12px;">
-      </div>
-
-      <div class="card2">
-        <h2>Side Result</h2>
-        <img src="{{ side_overlay }}" style="width:100%; border-radius:12px;">
-      </div>
-    </div>
-
-    <div style="margin-top:16px;">
-      <a class="link-btn" href="/history">Go to Case History</a>
-    </div>
   </div>
-</body>
-</html>
+</div>
+
+<div class="case-grid">
+
+  <!-- FRONT -->
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Front View Result</h2>
+        <p class="panel__sub">Overlay + landmark coordinates</p>
+      </div>
+    </div>
+
+    {% if front_overlay %}
+      <div class="imgwrap">
+        <img class="result-img" src="{{ front_overlay }}" alt="Front overlay">
+      </div>
+    {% else %}
+      <div class="empty">
+        <div class="empty__title">No front result</div>
+        <div class="empty__text">Front overlay not available.</div>
+      </div>
+    {% endif %}
+
+    {% if front_points and front_points|length > 0 %}
+      <div class="coords">
+        <div class="coords__head">Coordinates (Front)</div>
+        <div class="coords__table">
+          <div class="coords__row coords__row--head">
+            <div>ID</div><div>X</div><div>Y</div>
+          </div>
+
+          {% for p in front_points[:17] %}
+            <div class="coords__row">
+              <div class="t-strong">{{ loop.index }}</div>
+              <div class="t-muted">{{ p[0] }}</div>
+              <div class="t-muted">{{ p[1] }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- SIDE -->
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Side View Result</h2>
+        <p class="panel__sub">Overlay + landmark coordinates</p>
+      </div>
+    </div>
+
+    {% if side_overlay %}
+      <div class="imgwrap">
+        <img class="result-img" src="{{ side_overlay }}" alt="Side overlay">
+      </div>
+    {% else %}
+      <div class="empty">
+        <div class="empty__title">No side result</div>
+        <div class="empty__text">Side overlay not available.</div>
+      </div>
+    {% endif %}
+
+    {% if side_points and side_points|length > 0 %}
+      <div class="coords">
+        <div class="coords__head">Coordinates (Side)</div>
+        <div class="coords__table">
+          <div class="coords__row coords__row--head">
+            <div>ID</div><div>X</div><div>Y</div>
+          </div>
+
+          {% for p in side_points[:17] %}
+            <div class="coords__row">
+              <div class="t-strong">{{ loop.index }}</div>
+              <div class="t-muted">{{ p[0] }}</div>
+              <div class="t-muted">{{ p[1] }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}
