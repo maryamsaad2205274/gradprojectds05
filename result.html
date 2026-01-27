@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Results | Ortho Landmark System</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Ortho Landmark System</div>
+    <div class="top-actions">
+      <a class="navlink" href="/dashboard">Dashboard</a>
+      <a class="navlink" href="/history">History</a>
+      <a class="navlink" href="/logout">Logout</a>
+    </div>
+  </div>
+
+  <div class="page">
+    <h1>Analysis Results</h1>
+    <p class="subtitle">Case #{{ case_id }} ({{ status }})</p>
+
+    <div class="grid">
+      <div class="card2">
+        <h2>Front Result</h2>
+        <img src="{{ front_overlay }}" style="width:100%; border-radius:12px;">
+      </div>
+
+      <div class="card2">
+        <h2>Side Result</h2>
+        <img src="{{ side_overlay }}" style="width:100%; border-radius:12px;">
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <a class="link-btn" href="/history">Go to Case History</a>
+    </div>
+  </div>
+</body>
+</html>
