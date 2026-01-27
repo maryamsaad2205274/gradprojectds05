@@ -1,16 +1,40 @@
 {% extends "base.html" %}
-
 {% block title %}Dashboard | DentalLandmark{% endblock %}
 
 {% block content %}
 
-<div class="header">
-  <h1>Welcome, {{ name }}</h1>
-  <p class="subtitle">
-    Choose an action to start or review orthodontic analyses.
-  </p>
+<!-- HERO IMAGE -->
+<div class="dashboard-hero">
+  <div class="hero-overlay">
+    <h1>Welcome, {{ name }}</h1>
+    <p>Choose an action to start or review orthodontic analyses.</p>
+  </div>
 </div>
 
+<!-- Summary cards -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat__label">Total Patients</div>
+    <div class="stat__value">{{ total_patients }}</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat__label">Total Cases</div>
+    <div class="stat__value">{{ total_cases }}</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat__label">Completed</div>
+    <div class="stat__value">{{ completed_cases }}</div>
+  </div>
+
+  <div class="stat">
+    <div class="stat__label">Pending</div>
+    <div class="stat__value">{{ pending_cases }}</div>
+  </div>
+</div>
+
+<!-- Main cards -->
 <div class="grid">
   <a class="card-link" href="{{ url_for('new_analysis') }}">
     <div class="card2">
@@ -34,4 +58,46 @@
   </a>
 </div>
 
+<!-- Recent activity -->
+<div class="panel dash-panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Recent Analyses</h2>
+      <p class="panel__sub">Your latest 5 cases.</p>
+    </div>
+
+    <div class="dash-quick">
+      <a class="btn btn--primary" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+      <a class="btn btn--ghost" href="{{ url_for('history') }}">View Cases</a>
+    </div>
+  </div>
+
+  {% if recent_cases and recent_cases|length > 0 %}
+    <div class="recent">
+      {% for c in recent_cases %}
+        <a class="recent__row" href="{{ url_for('view_result', case_id=c.id) }}">
+          <div class="recent__left">
+            <div class="recent__main">
+              Case #{{ c.id }}
+              {% if c.patient_code %}<span class="recent__muted">• {{ c.patient_code }}</span>{% endif %}
+            </div>
+            <div class="recent__sub">{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+          </div>
+
+          <div class="badge {% if c.status=='COMPLETED' %}badge--ok{% elif c.status=='PENDING' %}badge--warn{% else %}badge--bad{% endif %}">
+            {{ c.status }}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No cases yet</div>
+      <div class="empty__text">Start your first analysis to see results and history here.</div>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ Start New Analysis</a>
+    </div>
+  {% endif %}
+</div>
+
 {% endblock %}
+
