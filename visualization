@@ -1,0 +1,42 @@
+import pandas as pd
+
+OUT_OVERLAY = os.path.join(BASE, "outputs", "val_overlays")
+os.makedirs(OUT_OVERLAY, exist_ok=True)
+
+# reload best model
+model.load_state_dict(torch.load(SAVE_PATH, map_location=device))
+model.eval()
+
+# get val file paths in order
+base_ds = val_ds.dataset
+val_label_paths = [base_ds.label_files[i] for i in val_ds.indices]
+
+for k, lbl_path in enumerate(val_label_paths):
+    d = json.load(open(lbl_path))
+    img_path = os.path.join(LAB_IMG_DIR, d["image"])
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    w, h = d["width"], d["height"]
+    gt = np.array([[lm["x"], lm["y"]] for lm in sorted(d["landmarks"], key=lambda z: z["id"])], dtype=np.int32)
+
+    # model input
+    inp = cv2.resize(img, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_AREA)
+    x = torch.from_numpy(inp).permute(2,0,1).float()/255.0
+    x = x.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        pred_norm = model(x).cpu().numpy().reshape(17,2)
+
+    pred_px = np.stack([pred_norm[:,0]*w, pred_norm[:,1]*h], axis=1).astype(np.int32)
+
+    # draw GT (green) + Pred (red)
+    out = img.copy()
+    for i in range(17):
+        cv2.circle(out, tuple(gt[i]), 6, (0,255,0), -1)     # GT
+        cv2.circle(out, tuple(pred_px[i]), 4, (255,0,0), -1) # Pred
+
+    out_bgr = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(os.path.join(OUT_OVERLAY, f"val_{k+1}_{d['image']}"), out_bgr)
+
+print("✅ Saved validation overlays to:", OUT_OVERLAY)
