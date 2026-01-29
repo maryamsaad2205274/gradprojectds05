@@ -1,0 +1,60 @@
+import glob
+import cv2
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+IMG_SIZE = 256  # you can change to 384 later for better accuracy
+
+def load_label(label_path):
+    data = json.load(open(label_path, "r", encoding="utf-8"))
+    w, h = data["width"], data["height"]
+    # order by id 1..17
+    lms = sorted(data["landmarks"], key=lambda d: d["id"])
+    pts = np.array([[lm["x"]/w, lm["y"]/h] for lm in lms], dtype=np.float32)  # (17,2) normalized
+    y = pts.reshape(-1)  # (34,)
+    return y
+
+class LandmarkDataset(Dataset):
+    def __init__(self, img_dir, lbl_dir, img_size=256, augment=False):
+        self.img_dir = img_dir
+        self.lbl_dir = lbl_dir
+        self.img_size = img_size
+        self.augment = augment
+
+        # label files determine the dataset items
+        self.label_files = sorted(glob.glob(os.path.join(lbl_dir, "Image *.json")))
+        assert len(self.label_files) > 0, "No label files found."
+
+    def __len__(self):
+        return len(self.label_files)
+
+    def __getitem__(self, idx):
+        lbl_path = self.label_files[idx]
+        data = json.load(open(lbl_path, "r", encoding="utf-8"))
+        img_name = data["image"]
+        img_path = os.path.join(self.img_dir, img_name)
+
+        img = cv2.imread(img_path)
+        if img is None:
+            raise FileNotFoundError(f"Cannot read {img_path}")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # resize image to fixed model input
+        img = cv2.resize(img, (self.img_size, self.img_size), interpolation=cv2.INTER_AREA)
+
+        # optional light augmentation (safe)
+        if self.augment:
+            # brightness/contrast
+            if np.random.rand() < 0.5:
+                alpha = 0.9 + 0.2*np.random.rand()  # contrast
+                beta = np.random.randint(-15, 16)   # brightness
+                img = np.clip(alpha*img + beta, 0, 255).astype(np.uint8)
+
+        # to tensor [0,1]
+        x = torch.from_numpy(img).permute(2,0,1).float() / 255.0
+
+        y = load_label(lbl_path)  # (34,)
+        y = torch.from_numpy(y)   # float tensor
+        return x, y
+
