@@ -20,6 +20,9 @@
   <div class="case-actions">
     <a class="btn btn--ghost" href="{{ url_for('history') }}">Back to Cases</a>
     <a class="btn btn--primary" href="{{ url_for('download_report', case_id=case.id) }}">Download Report (PDF)</a>
+    <button class="btn btn--ghost" type="button" onclick="openEditor('FRONT')">Adjust Front</button>
+<button class="btn btn--ghost" type="button" onclick="openEditor('SIDE')">Adjust Side</button>
+
 
   </div>
 </div>
@@ -107,5 +110,183 @@
   </div>
 
 </div>
+<!-- Landmark Editor Modal -->
+<div id="lmModal" class="lm-modal hidden">
+  <div class="lm-card">
+    <div class="lm-top">
+      <div>
+        <div class="lm-title">Adjust Landmarks</div>
+        <div class="lm-sub" id="lmSub">Drag points then save.</div>
+      </div>
+      <button class="lm-x" type="button" onclick="closeEditor()">✕</button>
+    </div>
+
+    <div class="lm-stage" id="lmStage">
+      <img id="lmImg" class="lm-img" src="" alt="Editor image">
+      <canvas id="lmCanvas" class="lm-canvas"></canvas>
+    </div>
+
+    <form id="lmForm" method="POST" action="{{ url_for('update_landmarks', case_id=case.id) }}" class="lm-actions">
+      <input type="hidden" name="view_type" id="lmViewType" value="">
+      <input type="hidden" name="points_json" id="lmPointsJson" value="">
+      <button class="btn btn--primary" type="submit">Save Changes</button>
+      <button class="btn btn--ghost" type="button" onclick="resetPoints()">Reset</button>
+      <button class="btn btn--ghost" type="button" onclick="closeEditor()">Cancel</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // ---- Data from backend ----
+  const FRONT_IMG = {{ (front_original|tojson) }};
+  const SIDE_IMG  = {{ (side_original|tojson) }};
+  const FRONT_PTS = {{ (front_points|tojson) }};
+  const SIDE_PTS  = {{ (side_points|tojson) }};
+
+  // ---- State ----
+  let currentView = "FRONT";
+  let points = [];
+  let originalPoints = [];
+  let draggingIndex = -1;
+
+  const modal = document.getElementById("lmModal");
+  const imgEl = document.getElementById("lmImg");
+  const canvas = document.getElementById("lmCanvas");
+  const ctx = canvas.getContext("2d");
+  const stage = document.getElementById("lmStage");
+  const ptsField = document.getElementById("lmPointsJson");
+  const viewField = document.getElementById("lmViewType");
+  const sub = document.getElementById("lmSub");
+
+  function openEditor(viewType){
+    currentView = viewType;
+    viewField.value = viewType;
+
+    const src = (viewType === "FRONT") ? FRONT_IMG : SIDE_IMG;
+    const pts = (viewType === "FRONT") ? FRONT_PTS : SIDE_PTS;
+
+    if(!src || !pts || pts.length === 0){
+      alert("No image/landmarks found for this view yet.");
+      return;
+    }
+
+    points = pts.map(p => [Number(p[0]), Number(p[1])]);
+    originalPoints = points.map(p => [p[0], p[1]]);
+
+    sub.innerText = viewType === "FRONT" ? "Front view: drag points then save." : "Side view: drag points then save.";
+
+    imgEl.onload = () => {
+      fitCanvasToImage();
+      draw();
+    };
+    imgEl.src = src;
+
+    modal.classList.remove("hidden");
+    setTimeout(() => fitCanvasToImage(), 0);
+  }
+
+  function closeEditor(){
+    modal.classList.add("hidden");
+    draggingIndex = -1;
+  }
+
+  function resetPoints(){
+    points = originalPoints.map(p => [p[0], p[1]]);
+    draw();
+  }
+
+  function fitCanvasToImage(){
+    const rect = imgEl.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+
+    // Canvas matches displayed image size
+    canvas.width = Math.round(rect.width);
+    canvas.height = Math.round(rect.height);
+
+    // Keep canvas aligned on top of image
+    canvas.style.width = rect.width + "px";
+    canvas.style.height = rect.height + "px";
+  }
+
+  function imgToCanvas(x, y){
+    // Convert original image coords -> displayed canvas coords
+    const sx = canvas.width / imgEl.naturalWidth;
+    const sy = canvas.height / imgEl.naturalHeight;
+    return [x * sx, y * sy];
+  }
+
+  function canvasToImg(cx, cy){
+    // Convert displayed canvas coords -> original image coords
+    const sx = imgEl.naturalWidth / canvas.width;
+    const sy = imgEl.naturalHeight / canvas.height;
+    return [cx * sx, cy * sy];
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // points
+    for(let i=0;i<points.length;i++){
+      const [x,y] = points[i];
+      const [cx,cy] = imgToCanvas(x,y);
+
+      // circle
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI*2);
+      ctx.fillStyle = "rgba(47,111,237,0.9)";
+      ctx.fill();
+
+      // id label
+      ctx.font = "12px Arial";
+      ctx.fillStyle = "#0f172a";
+      ctx.fillText(String(i+1), cx + 8, cy - 8);
+    }
+
+    // update hidden field with latest points
+    ptsField.value = JSON.stringify(points.map(p => [Math.round(p[0]), Math.round(p[1])]));
+  }
+
+  function hitTest(mx, my){
+    // find nearest point within radius
+    for(let i=0;i<points.length;i++){
+      const [x,y] = points[i];
+      const [cx,cy] = imgToCanvas(x,y);
+      const dx = mx - cx, dy = my - cy;
+      if(Math.sqrt(dx*dx + dy*dy) <= 10) return i;
+    }
+    return -1;
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    draggingIndex = hitTest(mx,my);
+  });
+
+  window.addEventListener("mouseup", () => draggingIndex = -1);
+
+  canvas.addEventListener("mousemove", (e) => {
+    if(draggingIndex === -1) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const [ix, iy] = canvasToImg(mx,my);
+    points[draggingIndex] = [
+      Math.max(0, Math.min(imgEl.naturalWidth, ix)),
+      Math.max(0, Math.min(imgEl.naturalHeight, iy))
+    ];
+    draw();
+  });
+
+  // Keep canvas fitting when window resizes
+  window.addEventListener("resize", () => {
+    if(!modal.classList.contains("hidden")){
+      fitCanvasToImage();
+      draw();
+    }
+  });
+</script>
 
 {% endblock %}
