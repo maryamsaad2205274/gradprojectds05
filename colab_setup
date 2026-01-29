@@ -1,0 +1,19 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+  import os, json
+
+BASE = "/content/drive/MyDrive/GradLandmarksDataset"
+
+print("Labeled images:", len(os.listdir(os.path.join(BASE, "labeled/images"))))
+print("Labels:", len(os.listdir(os.path.join(BASE, "labeled/labels"))))
+print("Unlabeled images:", len(os.listdir(os.path.join(BASE, "unlabeled/images"))))
+
+# quick label read
+p = os.path.join(BASE, "labeled/labels/Image 1.json")
+data = json.load(open(p))
+print("Example label:", data["image"], data["width"], data["height"], len(data["landmarks"]))
+
+
+!pip install -q torch torchvision opencv-python pillow numpy tqdm
+
