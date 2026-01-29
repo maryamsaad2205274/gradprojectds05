@@ -2,32 +2,94 @@
 {% block title %}Case History{% endblock %}
 
 {% block content %}
-  <h1>Case History</h1>
-  <p class="subtitle">Your previous analysis cases.</p>
 
-  <div class="card2">
-    {% if cases and cases|length > 0 %}
-      <table style="width:100%; border-collapse:collapse;">
-        <tr style="text-align:left;">
-          <th>Case ID</th>
-          <th>Patient Code</th>
-          <th>Status</th>
-          <th>Date</th>
-          <th>Action</th>
-        </tr>
-        {% for c in cases %}
-        <tr>
-          <td>{{ c.id }}</td>
-          <td>{{ c.patient_code or "-" }}</td>
-          <td>{{ c.status }}</td>
-          <td>{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
-          <td><a class="mini-link" href="{{ url_for('view_result', case_id=c.id) }}">View</a></td>
-        </tr>
-        {% endfor %}
-      </table>
-    {% else %}
-      <p>No cases yet. Start a new analysis.</p>
-      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">New Analysis</a>
-    {% endif %}
+<div class="h-head">
+  <div>
+    <h1 class="h-title">Case History</h1>
+    <p class="h-sub">Search, filter, and open previous analyses.</p>
   </div>
+
+  <div class="h-actions">
+    <a class="btn btn--primary" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+  </div>
+</div>
+
+<!-- Flash -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="messages">
+      {% for category, msg in messages %}
+        <div class="msg {{ category }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="h-toolbar panel">
+  <form class="h-search" method="GET" action="{{ url_for('history') }}">
+    <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by patient code or case id…">
+    <input type="hidden" name="status" value="{{ status }}">
+    <button class="btn btn--ghost" type="submit">Search</button>
+  </form>
+
+  <div class="chips">
+    <a class="chip {% if status=='ALL' %}is-active{% endif %}" href="{{ url_for('history', status='ALL', q=q) }}">
+      All <span class="chip__count">{{ counts['ALL'] }}</span>
+    </a>
+    <a class="chip {% if status=='COMPLETED' %}is-active{% endif %}" href="{{ url_for('history', status='COMPLETED', q=q) }}">
+      Completed <span class="chip__count">{{ counts['COMPLETED'] }}</span>
+    </a>
+    <a class="chip {% if status=='PENDING' %}is-active{% endif %}" href="{{ url_for('history', status='PENDING', q=q) }}">
+      Pending <span class="chip__count">{{ counts['PENDING'] }}</span>
+    </a>
+    <a class="chip {% if status=='FAILED' %}is-active{% endif %}" href="{{ url_for('history', status='FAILED', q=q) }}">
+      Failed <span class="chip__count">{{ counts['FAILED'] }}</span>
+    </a>
+  </div>
+</div>
+
+<div class="panel">
+  {% if cases and cases|length > 0 %}
+    <div class="table table--cases">
+      <div class="table__head table__head--cases">
+        <div>Case</div>
+        <div>Patient</div>
+        <div>Status</div>
+        <div>Created</div>
+        <div class="t-right">Actions</div>
+      </div>
+
+      {% for c in cases %}
+        <div class="table__row table__row--cases">
+          <div class="t-strong">#{{ c.id }}</div>
+          <div class="t-muted">{{ c.patient_code or "-" }}</div>
+
+          <div>
+            <span class="badge {% if c.status=='COMPLETED' %}badge--ok{% elif c.status=='PENDING' %}badge--warn{% else %}badge--bad{% endif %}">
+              {{ c.status }}
+            </span>
+          </div>
+
+          <div class="t-muted">{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+
+          <div class="t-right h-row-actions">
+            <a class="btn btn--ghost btn--small" href="{{ url_for('view_result', case_id=c.id) }}">Open</a>
+
+            <form method="POST" action="{{ url_for('delete_case', case_id=c.id) }}"
+                  onsubmit="return confirm('Delete case #{{ c.id }}? This cannot be undone.');">
+              <button class="btn btn--danger btn--small" type="submit">Delete</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No cases found</div>
+      <div class="empty__text">Try changing filters or start a new analysis.</div>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+    </div>
+  {% endif %}
+</div>
+
 {% endblock %}
