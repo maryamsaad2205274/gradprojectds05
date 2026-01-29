@@ -1,0 +1,53 @@
+import csv
+
+OUT_PRED = os.path.join(BASE, "outputs", "unlabeled_predictions.csv")
+OUT_UNLAB_OVER = os.path.join(BASE, "outputs", "unlabeled_preds_overlays")
+os.makedirs(OUT_UNLAB_OVER, exist_ok=True)
+
+# load best model
+model.load_state_dict(torch.load(SAVE_PATH, map_location=device))
+model.eval()
+
+# gather unlabeled image paths
+unlab_paths = sorted(glob.glob(os.path.join(UNLAB_IMG_DIR, "img*.*")))
+
+rows = []
+for p in unlab_paths:
+    bgr = cv2.imread(p)
+    if bgr is None:
+        continue
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    h, w = rgb.shape[:2]
+
+    inp = cv2.resize(rgb, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_AREA)
+    x = torch.from_numpy(inp).permute(2,0,1).float()/255.0
+    x = x.unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        pred_norm = model(x).cpu().numpy().reshape(17,2)
+
+    pred_px = np.stack([pred_norm[:,0]*w, pred_norm[:,1]*h], axis=1)
+
+    # save rows
+    name = os.path.basename(p)
+    for lid in range(1, 18):
+        xn, yn = float(pred_norm[lid-1,0]), float(pred_norm[lid-1,1])
+        xp, yp = float(pred_px[lid-1,0]), float(pred_px[lid-1,1])
+        rows.append([name, lid, xn, yn, xp, yp])
+
+    # overlay
+    out = rgb.copy()
+    for lid in range(1, 18):
+        xpi, ypi = int(pred_px[lid-1,0]), int(pred_px[lid-1,1])
+        cv2.circle(out, (xpi, ypi), 6, (255,0,0), -1)
+        cv2.putText(out, str(lid), (xpi+6, ypi-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+    cv2.imwrite(os.path.join(OUT_UNLAB_OVER, f"pred_{name}"), cv2.cvtColor(out, cv2.COLOR_RGB2BGR))
+
+# write CSV
+with open(OUT_PRED, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(["image","landmark_id","x_norm","y_norm","x_px","y_px"])
+    writer.writerows(rows)
+
+print("✅ Saved CSV:", OUT_PRED)
+print("✅ Saved unlabeled overlays:", OUT_UNLAB_OVER)
