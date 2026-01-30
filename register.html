@@ -53,16 +53,16 @@
 
         <form method="POST" action="{{ url_for('register') }}">
           <label>Full Name</label>
-          <input type="text" name="name" placeholder="e.g., Dr. Sama Gamal" required>
+          <input type="text" name="name" placeholder="e.g., Dr. name" required minlength="2"/>
 
           <label>Email</label>
-          <input type="email" name="email" placeholder="e.g., doctor@clinic.com" required>
+          <input type="email" name="email" placeholder="e.g., doctor@clinic.com" required autocomplete="email" />
 
           <label>Password</label>
-          <input type="password" name="password" required>
+          <input type="password" name="password" required minlength="8" autocomplete="new-password" />
 
           <label>Confirm Password</label>
-          <input type="password" name="confirm" required>
+          <input type="password" name="confirm" required minlength="8" autocomplete="new-password" />
 
           <button class="btn btn--primary" type="submit">Register</button>
         </form>
@@ -78,3 +78,4 @@
 
 </body>
 </html>
+
