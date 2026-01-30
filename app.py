@@ -34,7 +34,7 @@ class User(db.Model):
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(180), unique=True, nullable=False)
     password_hash = db.Column(db.String(300), nullable=False)
- 
+    role = db.Column(db.String(20), default="DOCTOR")  # DOCTOR or ADMIN
 
 class Case(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -185,9 +185,40 @@ def login_required(route_function):
         return route_function(*args, **kwargs)
     return wrapper
 
+
+def admin_required(route_function):
+    @wraps(route_function)
+    def wrapper(*args, **kwargs):
+        if "user_id" not in session:
+            return redirect(url_for("login"))
+        if session.get("role") != "ADMIN":
+            flash("Admin access only.", "error")
+            return redirect(url_for("dashboard"))
+        return route_function(*args, **kwargs)
+    return wrapper
+
+
 # Create tables once
 with app.app_context():
     db.create_all()
+
+with app.app_context():
+    db.create_all()
+
+    # ---- Seed Admin User (only if not exists) ----
+    admin_email = "admin@gmail.com"
+    admin_password = "12345678"
+
+    existing_admin = User.query.filter_by(email=admin_email).first()
+    if not existing_admin:
+        admin_user = User(
+            name="Admin",
+            email=admin_email,
+            password_hash=generate_password_hash(admin_password),
+            role="ADMIN"
+        )
+        db.session.add(admin_user)
+        db.session.commit()
 
 # ------------------------
 # Routes
@@ -201,17 +232,22 @@ def home():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
+        email = request.form["email"]
+        password = request.form["password"]
 
         user = User.query.filter_by(email=email).first()
-        if not user or not check_password_hash(user.password_hash, password):
-            flash("Invalid email or password.", "error")
-            return redirect(url_for("login"))
 
-        session["user_id"] = user.id
-        session["user_name"] = user.name
-        return redirect(url_for("dashboard"))
+        if user and check_password_hash(user.password_hash, password):
+            session["user_id"] = user.id
+            session["user_name"] = user.name
+            session["role"] = user.role
+
+            if user.role == "ADMIN":
+                return redirect(url_for("admin_dashboard"))
+
+            return redirect(url_for("dashboard"))
+
+        flash("Invalid email or password", "error")
 
     return render_template("login.html")
 
@@ -698,6 +734,152 @@ def update_landmarks(case_id):
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    # example stats
+    total_users = User.query.count()
+    total_cases = Case.query.count()
+    completed_cases = Case.query.filter_by(status="COMPLETED").count()
+    pending_cases = Case.query.filter_by(status="PENDING").count()
+
+    return render_template(
+        "admin_dashboard.html",
+        active="admin_dashboard",
+        name=session.get("user_name"),
+        total_users=total_users,
+        total_cases=total_cases,
+        completed_cases=completed_cases,
+        pending_cases=pending_cases,
+    )
+
+
+@app.route("/admin/datasets")
+@admin_required
+def admin_datasets():
+    return render_template("admin_datasets.html", active="admin_datasets", name=session.get("user_name"))
+
+# ------------------------
+# ADMIN - USERS CRUD
+# ------------------------
+
+@app.route("/admin/users")
+@admin_required
+def admin_users():
+    q = request.args.get("q", "").strip()
+    role = request.args.get("role", "ALL").strip().upper()
+
+    query = User.query
+
+    if role != "ALL":
+        query = query.filter(User.role == role)
+
+    if q:
+        query = query.filter(
+            (User.name.ilike(f"%{q}%")) | (User.email.ilike(f"%{q}%"))
+        )
+
+    users = query.order_by(User.id.desc()).all()
+
+    return render_template(
+        "admin_users.html",
+        active="admin_users",
+        name=session.get("user_name"),
+        users=users,
+        q=q,
+        role=role
+    )
+
+
+@app.route("/admin/users/create", methods=["POST"])
+@admin_required
+def admin_create_user():
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")
+    role = request.form.get("role", "DOCTOR").strip().upper()
+
+    if not name or not email or not password:
+        flash("Name, email, and password are required.", "error")
+        return redirect(url_for("admin_users"))
+
+    if role not in ["DOCTOR", "ADMIN"]:
+        role = "DOCTOR"
+
+    exists = User.query.filter_by(email=email).first()
+    if exists:
+        flash("Email already exists.", "error")
+        return redirect(url_for("admin_users"))
+
+    u = User(
+        name=name,
+        email=email,
+        password_hash=generate_password_hash(password),
+        role=role
+    )
+    db.session.add(u)
+    db.session.commit()
+
+    flash("User created successfully.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/update", methods=["POST"])
+@admin_required
+def admin_update_user(user_id):
+    u = User.query.get_or_404(user_id)
+
+    name = request.form.get("name", "").strip()
+    email = request.form.get("email", "").strip().lower()
+    role = request.form.get("role", u.role).strip().upper()
+    new_password = request.form.get("new_password", "").strip()
+
+    if not name or not email:
+        flash("Name and email are required.", "error")
+        return redirect(url_for("admin_users"))
+
+    # avoid duplicate email
+    email_owner = User.query.filter_by(email=email).first()
+    if email_owner and email_owner.id != u.id:
+        flash("Email already used by another account.", "error")
+        return redirect(url_for("admin_users"))
+
+    if role not in ["DOCTOR", "ADMIN"]:
+        role = "DOCTOR"
+
+    u.name = name
+    u.email = email
+    u.role = role
+
+    if new_password:
+        if len(new_password) < 6:
+            flash("New password must be at least 6 characters.", "error")
+            return redirect(url_for("admin_users"))
+        u.password_hash = generate_password_hash(new_password)
+
+    db.session.commit()
+    flash("User updated.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_user(user_id):
+    u = User.query.get_or_404(user_id)
+
+    # Safety: prevent deleting yourself
+    if u.id == session.get("user_id"):
+        flash("You cannot delete your own account.", "error")
+        return redirect(url_for("admin_users"))
+
+    db.session.delete(u)
+    db.session.commit()
+
+    flash("User deleted.", "success")
+    return redirect(url_for("admin_users"))
+
 
 
 if __name__ == "__main__":
