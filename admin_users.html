@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Admin | Users{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">Users</h1>
+    <p class="dash-sub">Create, edit, promote, and delete accounts.</p>
+  </div>
+</div>
+
+<!-- CREATE USER -->
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Create User</h2>
+      <p class="panel__sub">Add a doctor or admin account.</p>
+    </div>
+  </div>
+
+  <form class="admin-create" method="POST" action="{{ url_for('admin_create_user') }}">
+    <input class="input" name="name" placeholder="Full name" required>
+    <input class="input" name="email" placeholder="Email" required>
+    <input class="input" name="password" placeholder="Temporary password" type="password" required>
+
+    <select class="input" name="role">
+      <option value="DOCTOR">Doctor</option>
+      <option value="ADMIN">Admin</option>
+    </select>
+
+    <button class="btn btn--primary" type="submit">+ Create</button>
+  </form>
+</div>
+
+<!-- ALL USERS -->
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">All Users</h2>
+      <p class="panel__sub">{{ users|length }} accounts</p>
+    </div>
+  </div>
+
+  <div class="admin-table">
+    <!-- Header -->
+    <div class="admin-row admin-row--head">
+      <div>ID</div>
+      <div>Name</div>
+      <div>Email</div>
+      <div>Role</div>
+      <div>New Password</div>
+      <div class="admin-actions-head">Actions</div>
+    </div>
+
+    <!-- Rows -->
+    {% for u in users %}
+      <div class="admin-row">
+        <div class="muted">{{ u.id }}</div>
+
+        <!-- Update form -->
+        <form class="admin-row-form" method="POST" action="{{ url_for('admin_update_user', user_id=u.id) }}">
+          <input class="input input--sm" name="name" value="{{ u.name }}" required>
+          <input class="input input--sm" name="email" value="{{ u.email }}" required>
+
+          <select class="input input--sm" name="role">
+            <option value="DOCTOR" {% if u.role == 'DOCTOR' %}selected{% endif %}>Doctor</option>
+            <option value="ADMIN" {% if u.role == 'ADMIN' %}selected{% endif %}>Admin</option>
+          </select>
+
+          <input class="input input--sm" name="new_password" placeholder="Optional" type="password">
+
+          <div class="admin-actions">
+            <button class="btn btn--ghost btn--sm" type="submit">Save</button>
+          </div>
+        </form>
+
+        <!-- Delete form -->
+        <form class="admin-del" method="POST" action="{{ url_for('admin_delete_user', user_id=u.id) }}">
+         {% if u.id == session.get("user_id") %}
+  <button class="btn btn--danger btn--sm" type="submit" disabled>
+    Delete
+  </button>
+{% else %}
+  <button class="btn btn--danger btn--sm" type="submit">
+    Delete
+  </button>
+{% endif %}
+
+        </form>
+
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}
