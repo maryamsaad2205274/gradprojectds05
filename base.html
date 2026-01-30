@@ -41,6 +41,26 @@
 </a>
 
 
+{% if session.get("role") == "ADMIN" %}
+  <div class="nav__section">Admin</div>
+
+  <a class="nav__item {% if active=='admin_dashboard' %}is-active{% endif %}"
+     href="{{ url_for('admin_dashboard') }}">
+    <span class="nav__icon">🛡️</span> Admin Dashboard
+  </a>
+
+  <a class="nav__item {% if active=='admin_users' %}is-active{% endif %}"
+     href="{{ url_for('admin_users') }}">
+    <span class="nav__icon">👤</span> Users
+  </a>
+
+  <a class="nav__item {% if active=='admin_datasets' %}is-active{% endif %}"
+     href="{{ url_for('admin_datasets') }}">
+    <span class="nav__icon">🗂️</span> Datasets
+  </a>
+{% endif %}
+
+
       </nav>
 
       <div class="sidebar__footer">
@@ -48,7 +68,8 @@
           <div class="userpill__avatar">{{ (name or "D")[0] }}</div>
           <div class="userpill__meta">
             <div class="userpill__name">{{ name or "Doctor" }}</div>
-            <div class="userpill__role">Doctor</div>
+           <div class="userpill__role">{{ session.get("role","DOCTOR") }}</div>
+
           </div>
         </div>
 
@@ -78,3 +99,4 @@
   </div>
 </body>
 </html>
+
