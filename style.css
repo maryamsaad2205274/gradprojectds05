@@ -1609,4 +1609,156 @@ body{ background: var(--bg); }
   padding: 20px 22px;   /* was ~14px */
 }
 
+.nav__section {
+  margin: 16px 0 6px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.table { display: grid; gap: 10px; margin-top: 10px; }
+.trow{
+  display:grid;
+  grid-template-columns: 80px 1.2fr 1.6fr 140px;
+  gap:12px;
+  align-items:center;
+  background:#fff;
+  border:1px solid #e6ecff;
+  border-radius:14px;
+  padding:12px;
+}
+.thead{
+  background:#f8fafc;
+  font-weight:900;
+}
+.nav__section{
+  margin:14px 10px 6px;
+  font-size:12px;
+  color:#9fb4d8;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+/* =========================
+   ADMIN USERS CRUD
+   ========================= */
+.admin-create{
+  display:grid;
+  grid-template-columns: 1fr 1.3fr 1fr .6fr auto;
+  gap:10px;
+  align-items:center;
+}
+@media (max-width: 1000px){
+  .admin-create{grid-template-columns:1fr;}
+}
+
+.tform{ display: contents; }
+
+.input--mini{
+  padding:10px;
+  border-radius:12px;
+}
+
+.actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+}
+
+.btn--danger{
+  background:#b91c1c;
+  color:#fff;
+  border:none;
+}
+.btn--danger:hover{ opacity:.92; }
+
+.btn--small{
+  padding:10px 12px;
+  border-radius:12px;
+}
+
+/* ===== Admin Users Layout ===== */
+
+.admin-create{
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr 180px auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.admin-table{
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.admin-row{
+  display: grid;
+  grid-template-columns: 70px 1fr 1.4fr 140px 180px 220px;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.admin-row--head{
+  background: rgba(241, 245, 249, 0.7);
+  font-weight: 700;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.admin-row-form{
+  display: contents; /* key: makes the form fit into the grid columns */
+}
+
+.admin-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.admin-del{
+  grid-column: 6 / 7;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-actions-head{
+  text-align: left;
+}
+
+.input{
+  width: 100%;
+}
+
+.input--sm{
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.btn--sm{
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+.btn--danger{
+  background: #b91c1c;
+  color: white;
+  border: none;
+}
+
+.btn--danger:disabled{
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.muted{
+  opacity: 0.7;
+}
+
+
 
