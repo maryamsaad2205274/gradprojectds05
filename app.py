@@ -13,7 +13,25 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
+import re
 
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+def is_valid_email(email: str) -> bool:
+    if not email:
+        return False
+    return bool(EMAIL_RE.match(email.strip().lower()))
+
+def is_valid_password(pw: str, min_len: int = 8) -> bool:
+    if not pw:
+        return False
+    return len(pw) >= min_len
+
+def clean_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+def clean_name(name: str) -> str:
+    return " ".join((name or "").strip().split())
 
 
 app = Flask(__name__)
