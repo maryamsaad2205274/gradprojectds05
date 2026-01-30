@@ -15,6 +15,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 import re
 
+#verification
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 def is_valid_email(email: str) -> bool:
@@ -250,50 +251,85 @@ def home():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form["email"]
-        password = request.form["password"]
+        email = clean_email(request.form.get("email"))
+        password = request.form.get("password", "")
 
+        # -------------------
+        # VERIFICATION (format)
+        # -------------------
+        if not is_valid_email(email):
+            flash("Please enter a valid email.", "error")
+            return redirect(url_for("login"))
+
+        if not password:
+            flash("Password is required.", "error")
+            return redirect(url_for("login"))
+
+        # -------------------
+        # VALIDATION (correct credentials)
+        # -------------------
         user = User.query.filter_by(email=email).first()
 
-        if user and check_password_hash(user.password_hash, password):
-            session["user_id"] = user.id
-            session["user_name"] = user.name
-            session["role"] = user.role
+        # important: generic error (don’t tell them which field is wrong)
+        if not user or not check_password_hash(user.password_hash, password):
+            flash("Invalid email or password.", "error")
+            return redirect(url_for("login"))
 
-            if user.role == "ADMIN":
-                return redirect(url_for("admin_dashboard"))
+        # success session
+        session["user_id"] = user.id
+        session["user_name"] = user.name
+        session["role"] = user.role
 
-            return redirect(url_for("dashboard"))
+        if user.role == "ADMIN":
+            return redirect(url_for("admin_dashboard"))
 
-        flash("Invalid email or password", "error")
+        return redirect(url_for("dashboard"))
 
     return render_template("login.html")
+
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower()
+        name = clean_name(request.form.get("name"))
+        email = clean_email(request.form.get("email"))
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
 
-        if not name or not email or not password:
-            flash("Please fill all fields.", "error")
+        # -------------------
+        # VERIFICATION (format)
+        # -------------------
+        if not name:
+            flash("Name is required.", "error")
+            return redirect(url_for("register"))
+
+        if not is_valid_email(email):
+            flash("Please enter a valid email address.", "error")
+            return redirect(url_for("register"))
+
+        if not is_valid_password(password, min_len=8):
+            flash("Password must be at least 8 characters.", "error")
             return redirect(url_for("register"))
 
         if password != confirm:
             flash("Passwords do not match.", "error")
             return redirect(url_for("register"))
 
+        # -------------------
+        # VALIDATION (business rules)
+        # -------------------
         existing = User.query.filter_by(email=email).first()
         if existing:
             flash("Email already registered. Please login.", "error")
             return redirect(url_for("login"))
 
+        # Default role for new accounts = DOCTOR
         new_user = User(
             name=name,
             email=email,
-            password_hash=generate_password_hash(password)
+            password_hash=generate_password_hash(password),
+            role="DOCTOR"
         )
         db.session.add(new_user)
         db.session.commit()
@@ -302,6 +338,8 @@ def register():
         return redirect(url_for("login"))
 
     return render_template("register.html")
+
+
 
 @app.route("/dashboard")
 @login_required
