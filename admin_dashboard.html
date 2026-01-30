@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard | DentalLandmark{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">Admin Dashboard</h1>
+    <p class="dash-sub">System overview, users, and platform activity.</p>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat__label">Total Users</div>
+    <div class="stat__value">{{ total_users }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat__label">Total Cases</div>
+    <div class="stat__value">{{ total_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat__label">Completed</div>
+    <div class="stat__value">{{ completed_cases }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat__label">Pending</div>
+    <div class="stat__value">{{ pending_cases }}</div>
+  </div>
+</div>
+
+<div class="grid">
+  <a class="card-link" href="{{ url_for('admin_users') }}">
+    <div class="card2">
+      <h2>Manage Users</h2>
+      <p>View doctors/admins, roles, and access.</p>
+    </div>
+  </a>
+
+  <a class="card-link" href="{{ url_for('admin_datasets') }}">
+    <div class="card2">
+      <h2>Datasets</h2>
+      <p>Track datasets, versions, and validation status.</p>
+    </div>
+  </a>
+
+  <a class="card-link" href="{{ url_for('history') }}">
+    <div class="card2">
+      <h2>All Cases</h2>
+      <p>Review platform cases and results.</p>
+    </div>
+  </a>
+</div>
+
+{% endblock %}
