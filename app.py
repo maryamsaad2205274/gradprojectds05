@@ -80,8 +80,13 @@ class Result(db.Model):
 class Patient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    patient_code = db.Column(db.String(60), nullable=False)
+
+    patient_code = db.Column(db.Integer, nullable=False)
+    age = db.Column(db.Integer, nullable=True)
+    gender = db.Column(db.String(10), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
@@ -492,40 +497,66 @@ def profile():
 def patients():
     doctor_id = session["user_id"]
 
-    # Add patient (simple form)
+    # ------------------
+    # ADD PATIENT
+    # ------------------
     if request.method == "POST":
         patient_code = request.form.get("patient_code", "").strip()
         age = request.form.get("age", "").strip()
-        gender = request.form.get("gender", "").strip()
+        gender = request.form.get("gender", "").strip().upper()
 
-        if not patient_code:
-            flash("Patient code is required.", "error")
+        # -------- VERIFICATION --------
+        if not patient_code.isdigit():
+            flash("Patient code must contain numbers only.", "error")
+            return redirect(url_for("patients"))
+        patient_code= int(patient_code)
+        
+        if age:
+            if not age.isdigit() or not (0 < int(age) < 120):
+                flash("Age must be a valid number (1–119).", "error")
+                return redirect(url_for("patients"))
+            age = int(age)
+        else:
+            age = None
+
+        if gender and gender not in ["MALE", "FEMALE"]:
+            flash("Gender must be Male or Female.", "error")
             return redirect(url_for("patients"))
 
-        # Prevent duplicates per doctor
-        existing = Patient.query.filter_by(doctor_id=doctor_id, patient_code=patient_code).first()
-        if existing:
-            flash("Patient code already exists.", "error")
-            return redirect(url_for("patients"))
-
-        p = Patient(
+        # -------- VALIDATION --------
+        existing = Patient.query.filter_by(
             doctor_id=doctor_id,
             patient_code=patient_code
-        )
-        # store optional fields if you add them later
-        # for now we keep only patient_code in DB
+        ).first()
 
+        if existing:
+            flash("Patient code already exists for you.", "error")
+            return redirect(url_for("patients"))
+
+        # -------- SAVE --------
+        p = Patient(
+            doctor_id=doctor_id,
+            patient_code=patient_code,
+            age=age,
+            gender=gender
+        )
         db.session.add(p)
         db.session.commit()
+
+
 
         flash("Patient added successfully.", "success")
         return redirect(url_for("patients"))
 
-    # List patients
+    # ------------------
+    # LIST PATIENTS
+    # ------------------
     q = request.args.get("q", "").strip()
     query = Patient.query.filter_by(doctor_id=doctor_id)
+
     if q:
         query = query.filter(Patient.patient_code.ilike(f"%{q}%"))
+
     patients_list = query.order_by(Patient.created_at.desc()).all()
 
     return render_template(
@@ -537,15 +568,24 @@ def patients():
     )
 
 
+
 @app.route("/patients/<int:patient_id>/cases")
 @login_required
 def patient_cases(patient_id):
     doctor_id = session["user_id"]
 
-    patient = Patient.query.filter_by(id=patient_id, doctor_id=doctor_id).first_or_404()
+    # -------- VALIDATION --------
+    patient = Patient.query.filter_by(
+        id=patient_id,
+        doctor_id=doctor_id
+    ).first_or_404()
+
     cases = (
         Case.query
-        .filter_by(doctor_id=doctor_id, patient_code=patient.patient_code)
+        .filter_by(
+            doctor_id=doctor_id,
+            patient_code=patient.patient_code
+        )
         .order_by(Case.created_at.desc())
         .all()
     )
@@ -557,6 +597,7 @@ def patient_cases(patient_id):
         patient=patient,
         cases=cases
     )
+
 
 
 @app.route("/submit-analysis", methods=["POST"])
@@ -936,6 +977,126 @@ def admin_delete_user(user_id):
     flash("User deleted.", "success")
     return redirect(url_for("admin_users"))
 
+
+# ------------------------
+# ADMIN - PATIENTS CRUD
+# ------------------------
+
+@app.route("/admin/patients")
+@admin_required
+def admin_patients():
+    q = request.args.get("q", "").strip()
+
+    query = Patient.query
+
+    if q:
+        # Search by patient code or doctor id (if numeric)
+        if q.isdigit():
+            query = query.filter(Patient.doctor_id == int(q))
+        else:
+            query = query.filter(Patient.patient_code.ilike(f"%{q}%"))
+
+    patients = query.order_by(Patient.created_at.desc()).all()
+
+    # doctor lookup (so admin sees doctor name/email)
+    doctor_ids = list({p.doctor_id for p in patients})
+    doctors = User.query.filter(User.id.in_(doctor_ids)).all() if doctor_ids else []
+    doctor_map = {d.id: d for d in doctors}
+
+    return render_template(
+        "admin_patients.html",
+        active="admin_patients",
+        name=session.get("user_name"),
+        patients=patients,
+        q=q,
+        doctor_map=doctor_map
+    )
+
+
+@app.route("/admin/patients/create", methods=["POST"])
+@admin_required
+def admin_create_patient():
+    doctor_id = request.form.get("doctor_id", "").strip()
+    patient_code = request.form.get("patient_code", "").strip()
+    age = request.form.get("age", "").strip()
+    gender = request.form.get("gender", "").strip()
+
+    # basic validation
+    if not doctor_id.isdigit():
+        flash("Doctor ID must be a number.", "error")
+        return redirect(url_for("admin_patients"))
+
+    if not patient_code:
+        flash("Patient code is required.", "error")
+        return redirect(url_for("admin_patients"))
+
+    # ensure doctor exists
+    doctor = User.query.get(int(doctor_id))
+    if not doctor:
+        flash("Doctor not found.", "error")
+        return redirect(url_for("admin_patients"))
+
+    # convert age
+    age_val = None
+    if age:
+        if not age.isdigit():
+            flash("Age must be a number.", "error")
+            return redirect(url_for("admin_patients"))
+        age_val = int(age)
+
+    # create
+    p = Patient(
+        doctor_id=int(doctor_id),
+        patient_code=patient_code,
+        age=age_val,
+        gender=gender if gender else None
+    )
+    db.session.add(p)
+    db.session.commit()
+
+    flash("Patient created.", "success")
+    return redirect(url_for("admin_patients"))
+
+
+@app.route("/admin/patients/<int:patient_id>/update", methods=["POST"])
+@admin_required
+def admin_update_patient(patient_id):
+    p = Patient.query.get_or_404(patient_id)
+
+    patient_code = request.form.get("patient_code", "").strip()
+    age = request.form.get("age", "").strip()
+    gender = request.form.get("gender", "").strip()
+
+    if not patient_code:
+        flash("Patient code is required.", "error")
+        return redirect(url_for("admin_patients"))
+
+    age_val = None
+    if age:
+        if not age.isdigit():
+            flash("Age must be a number.", "error")
+            return redirect(url_for("admin_patients"))
+        age_val = int(age)
+
+    p.patient_code = patient_code
+    p.age = age_val
+    p.gender = gender if gender else None
+
+    db.session.commit()
+    flash("Patient updated.", "success")
+    return redirect(url_for("admin_patients"))
+
+
+@app.route("/admin/patients/<int:patient_id>/delete", methods=["POST"])
+@admin_required
+def admin_delete_patient(patient_id):
+    p = Patient.query.get_or_404(patient_id)
+
+    db.session.delete(p)
+    db.session.commit()
+
+    flash("Patient deleted.", "success")
+    return redirect(url_for("admin_patients"))
 
 
 if __name__ == "__main__":
