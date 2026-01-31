@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Admin | Patients{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">Patients</h1>
+    <p class="dash-sub">View and manage patient records from all doctors.</p>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="panel" style="margin-bottom:12px;">
+  <form method="GET" action="{{ url_for('admin_patients') }}" class="admin-search">
+    <div class="field">
+      <label>Search</label>
+      <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by patient code or doctor_id">
+    </div>
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Search</button>
+      <a class="btn btn--ghost" href="{{ url_for('admin_patients') }}">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- Create -->
+<div class="panel" style="margin-bottom:12px;">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Create Patient</h2>
+      <p class="panel__sub">Admin can create a patient under a doctor.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('admin_create_patient') }}">
+    <div class="row2">
+      <div class="field">
+        <label>Doctor ID</label>
+        <input class="input" type="text" name="doctor_id" placeholder="e.g., 5" required>
+      </div>
+
+      <div class="field">
+        <label>Patient Code</label>
+        <input class="input" type="text" name="patient_code" placeholder="e.g., 1001" required>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>Age (optional)</label>
+        <input class="input" type="text" name="age" placeholder="e.g., 21">
+      </div>
+
+      <div class="field">
+        <label>Gender (optional)</label>
+        <input class="input" type="text" name="gender" placeholder="e.g., Female">
+      </div>
+    </div>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Create</button>
+    </div>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">All Patients</h2>
+      <p class="panel__sub">Editable rows.</p>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="admin-grid admin-grid--head">
+    <div>ID</div>
+    <div>Patient Code</div>
+    <div>Age</div>
+    <div>Gender</div>
+    <div>Doctor</div>
+    <div class="admin-grid__actions">Actions</div>
+  </div>
+
+  <!-- Rows -->
+  {% for p in patients %}
+    <div class="admin-grid admin-grid--row">
+      <div class="t-muted">{{ p.id }}</div>
+
+      <!-- Update form -->
+      <form class="admin-grid__form" method="POST"
+            action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
+        <input class="input input--sm admin-input" type="text" name="patient_code" value="{{ p.patient_code }}" required>
+        <input class="input input--sm admin-input" type="text" name="age" value="{{ p.age or '' }}" placeholder="—">
+        <input class="input input--sm admin-input" type="text" name="gender" value="{{ (p.gender or '')|upper }}" placeholder="—">
+
+        <div class="admin-doctor">
+          {% if p.doctor %}
+            <div class="admin-doctor__name">{{ p.doctor.name }}</div>
+            <div class="admin-doctor__meta">{{ p.doctor.email }}</div>
+            <div class="admin-doctor__meta">id={{ p.doctor.id }}</div>
+          {% else %}
+            <div class="admin-doctor__meta">—</div>
+          {% endif %}
+        </div>
+
+        <div class="admin-actions">
+          <button class="btn btn--primary btn--sm" type="submit">Save</button>
+        </div>
+      </form>
+
+      <!-- Delete form -->
+      <div class="admin-actions">
+        <form method="POST" action="{{ url_for('admin_delete_patient', patient_id=p.id) }}">
+          <button class="btn btn--danger btn--sm" type="submit">Delete</button>
+        </form>
+      </div>
+
+    </div>
+  {% endfor %}
+</div>
+
+</div>
+
+{% endblock %}
