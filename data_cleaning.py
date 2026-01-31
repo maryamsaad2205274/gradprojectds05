@@ -3,8 +3,7 @@ import json
 import cv2
 import csv
 
-# ====== EDIT THIS PATH ======
-BASE = r"C:\Users\marya\Desktop\GradLandmarksDataset"  # <-- change this
+BASE = r"C:\Users\marya\Desktop\GradLandmarksDataset"  
 
 LAB_IMG_DIR = os.path.join(BASE, "labeled", "images")
 LAB_LBL_DIR = os.path.join(BASE, "labeled", "labels")
@@ -28,7 +27,6 @@ def main():
     print("Unlabeled imgs:", len(unlabeled_images))
     print()
 
-    # 1) Check pairing: each labeled image must have JSON
     print("=== CHECK 1: Image <-> Label pairing ===")
     img_to_json_missing = 0
     json_to_img_missing = 0
@@ -36,7 +34,6 @@ def main():
     labeled_set = set(labeled_images)
     label_set = set(label_files)
 
-    # map Image X.jpg -> Image X.json
     for img in labeled_images:
         stem = os.path.splitext(img)[0]
         expected_json = stem + ".json"
@@ -56,7 +53,6 @@ def main():
     print("Missing image files:", json_to_img_missing)
     print()
 
-    # 2) Validate each JSON: landmarks count + coordinate bounds + width/height match actual image
     print("=== CHECK 2: Label file validity ===")
     bad_json = 0
     bad_landmark_count = 0
@@ -73,7 +69,6 @@ def main():
             bad_json += 1
             continue
 
-        # basic required fields
         img_name = data.get("image")
         w = data.get("width")
         h = data.get("height")
@@ -84,7 +79,6 @@ def main():
         if w is None or h is None:
             issues.append(("JSON_MISSING_SIZE_FIELD", jf, f"width={w}, height={h}"))
 
-        # load corresponding image (if exists)
         img_path = os.path.join(LAB_IMG_DIR, img_name) if img_name else None
         img = cv2.imread(img_path) if img_path and os.path.exists(img_path) else None
         if img is None:
@@ -94,17 +88,14 @@ def main():
 
         ih, iw = img.shape[:2]
 
-        # size mismatch check
         if (w is not None and h is not None) and (int(w) != int(iw) or int(h) != int(ih)):
             issues.append(("SIZE_MISMATCH", img_name, f"json=({w},{h}) vs actual=({iw},{ih})"))
             size_mismatch += 1
 
-        # landmark count
         if len(lms) != EXPECTED_LANDMARKS:
             issues.append(("BAD_LANDMARK_COUNT", img_name, f"{len(lms)} (expected {EXPECTED_LANDMARKS})"))
             bad_landmark_count += 1
 
-        # bounds check
         for lm in lms:
             x = lm.get("x")
             y = lm.get("y")
@@ -123,7 +114,6 @@ def main():
     print("Out-of-bounds landmarks:", out_of_bounds)
     print()
 
-    # 3) Save report CSV
     report_path = os.path.join(BASE, "data_cleaning_report.csv")
     with open(report_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
