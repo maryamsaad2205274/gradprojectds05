@@ -10,7 +10,6 @@ OUT_DIR = os.path.join("outputs", "previews_labeled")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 for i in range(1, 31):
-    # 🔹 Find image regardless of extension
     matches = glob.glob(os.path.join(IMG_DIR, f"Image {i}.*"))
     if len(matches) == 0:
         raise FileNotFoundError(f"Cannot find image for Image {i}")
@@ -25,7 +24,6 @@ for i in range(1, 31):
     with open(lbl_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # draw landmarks
     for lm in data["landmarks"]:
         x, y, lid = lm["x"], lm["y"], lm["id"]
 
