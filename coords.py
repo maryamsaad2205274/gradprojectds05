@@ -1,6 +1,3 @@
-# coords.py
-# 30 labeled images, each has 17 (x, y) landmarks in order 1..17
-
 COORDS = {
     1: [
         (60,189),(186,71),(192,148),(212,205),(204,215),(193,219),(175,214),
