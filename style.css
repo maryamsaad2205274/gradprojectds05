@@ -1911,3 +1911,51 @@ body{ background: var(--bg); }
   transform: translateY(-4px);
   box-shadow: 0 16px 40px rgba(0,0,0,0.12);
 }
+/* =========================
+   ADMIN DASHBOARD HERO
+========================= */
+
+.admin-hero {
+  width: 100%;
+  height: 45vh; /* half top page feeling */
+  background: url("../img/Dashboard.png") center/cover no-repeat;
+  border-radius: 20px;
+  margin-bottom: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Dark overlay for readability */
+.admin-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    rgba(0, 0, 0, 0.55),
+    rgba(0, 0, 0, 0.25)
+  );
+}
+
+/* Text on top of image */
+.admin-hero__overlay {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: #fff;
+}
+
+.admin-hero__overlay h1 {
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.admin-hero__overlay p {
+  font-size: 16px;
+  opacity: 0.9;
+  max-width: 520px;
+}
