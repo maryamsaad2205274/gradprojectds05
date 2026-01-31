@@ -37,3 +37,15 @@ print("Pairs found:", len(pairs))
 print("Missing landmarks:", missing)
 
 print("\nExample pair:", pairs[0] if pairs else "No pairs found")
+
+import os, glob
+sample = sorted(glob.glob(LANDMARK_DIR + "/*"))[0]
+print("Sample landmark file:", sample)
+print("Extension:", os.path.splitext(sample)[1].lower())
+
+with open(sample, "r", encoding="utf-8", errors="ignore") as f:
+    for i in range(10):
+        line = f.readline()
+        if not line: break
+        print(line.strip())
+
