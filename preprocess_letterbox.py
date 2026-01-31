@@ -13,8 +13,7 @@ OUT_LBL_DIR = os.path.join(BASE, "processed", "labels")
 os.makedirs(OUT_IMG_DIR, exist_ok=True)
 os.makedirs(OUT_LBL_DIR, exist_ok=True)
 
-TARGET = 256  # you can change later to 384 for better accuracy
-
+TARGET = 256  
 def letterbox(image, target=256):
     h, w = image.shape[:2]
     scale = target / max(w, h)
@@ -54,12 +53,10 @@ for jf in label_files:
         ys = y * scale + pad_y
         new_landmarks.append({"id": lm["id"], "x": float(xs), "y": float(ys)})
 
-    # save processed image
     out_img_name = img_name  # keep same name
     out_img_path = os.path.join(OUT_IMG_DIR, out_img_name)
     cv2.imwrite(out_img_path, out_img)
 
-    # save processed label
     out_data = {
         "image": out_img_name,
         "width": TARGET,
