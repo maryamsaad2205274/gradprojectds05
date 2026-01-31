@@ -6,12 +6,10 @@ criterion = nn.SmoothL1Loss()
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 def mean_pixel_error(pred_norm, gt_norm, widths, heights):
-    # pred_norm, gt_norm: (B,34) in [0,1]
     B = pred_norm.shape[0]
     pred = pred_norm.view(B, 17, 2).clone()
     gt   = gt_norm.view(B, 17, 2).clone()
 
-    # convert to pixels
     w = torch.tensor(widths, device=pred.device).view(B,1,1)
     h = torch.tensor(heights, device=pred.device).view(B,1,1)
     pred_px = torch.stack([pred[:,:,0]*w.squeeze(-1), pred[:,:,1]*h.squeeze(-1)], dim=-1)
@@ -21,15 +19,12 @@ def mean_pixel_error(pred_norm, gt_norm, widths, heights):
     return d.mean().item()
 
 def nme(pred_norm, gt_norm, widths, heights):
-    # normalize by image diagonal
     B = pred_norm.shape[0]
     diag = [math.sqrt(w*w + h*h) for w,h in zip(widths, heights)]
     mpe = mean_pixel_error(pred_norm, gt_norm, widths, heights)
     return mpe / (sum(diag)/len(diag))
 
-# helper to get original sizes for a batch (by reading label files)
 def get_sizes_from_batch_indices(ds_subset):
-    # ds_subset is a torch Subset -> has indices, and underlying dataset label_files
     base_ds = ds_subset.dataset
     sizes = []
     for idx in ds_subset.indices:
@@ -44,7 +39,7 @@ train_sizes = get_sizes_from_batch_indices(train_ds)
 best_val_loss = 1e9
 SAVE_PATH = os.path.join(BASE, "models_best_resnet18.pth")
 
-for epoch in range(1, 61):  # 60 epochs baseline
+for epoch in range(1, 61):  
     model.train()
     train_loss = 0.0
 
@@ -59,7 +54,6 @@ for epoch in range(1, 61):  # 60 epochs baseline
 
     train_loss /= len(train_ds)
 
-    # validation
     model.eval()
     val_loss = 0.0
     all_pred, all_gt = [], []
@@ -81,8 +75,7 @@ for epoch in range(1, 61):  # 60 epochs baseline
     mpe = mean_pixel_error(all_pred, all_gt, widths, heights)
     val_nme = nme(all_pred, all_gt, widths, heights)
 
-    # save best
-    if val_loss < best_val_loss:
+if val_loss < best_val_loss:
         best_val_loss = val_loss
         torch.save(model.state_dict(), SAVE_PATH)
 
