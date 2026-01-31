@@ -6,7 +6,6 @@ train_size = 24
 val_size = len(dataset) - train_size
 train_ds, val_ds = random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
 
-# IMPORTANT: no augmentation in validation
 val_ds.dataset.augment = False
 
 train_loader = DataLoader(train_ds, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
