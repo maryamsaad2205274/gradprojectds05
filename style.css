@@ -1785,6 +1785,129 @@ body{ background: var(--bg); }
   color: #166534;
 }
 
+.admin-search{display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;}
+.input--small{padding:10px; border-radius:10px;}
+.trow__form{display:contents;}
 
+/* ===== Admin Grid Table (Patients) ===== */
+.admin-grid{
+  display: grid;
+  grid-template-columns: 70px 1.3fr 0.7fr 0.7fr 1.2fr 220px;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid #e6eeff;
+  border-radius: 14px;
+  background: #fff;
+}
 
+.admin-grid--head{
+  font-weight: 700;
+  background: #f7fbff;
+  border-radius: 14px;
+}
 
+.admin-grid--row{
+  margin-top: 12px;
+}
+
+.admin-grid__form{
+  grid-column: 2 / 6;          /* spans PatientCode..Doctor */
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr 0.7fr 1.2fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.admin-input{
+  width: 100%;
+  min-width: 0;
+}
+
+.input--sm{
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.admin-doctor{
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.admin-doctor__name{
+  font-weight: 700;
+}
+
+.admin-doctor__meta{
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.admin-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.admin-grid__actions{
+  text-align: left;
+}
+
+.btn--sm{
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+/* optional: nicer danger button */
+.btn--danger{
+  background: #b91c1c;
+  color: #fff;
+  border: 1px solid #b91c1c;
+}
+.btn--danger:hover{
+  filter: brightness(0.95);
+}
+
+/* Admin dashboard grid */
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+/* Card base */
+.admin-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+  min-height: 140px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Numbers */
+.admin-number {
+  font-size: 32px;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+/* Action cards */
+.admin-card--action {
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.admin-card--action:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+}
