@@ -4,15 +4,15 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-IMG_SIZE = 256  # you can change to 384 later for better accuracy
+IMG_SIZE = 256  
 
 def load_label(label_path):
     data = json.load(open(label_path, "r", encoding="utf-8"))
     w, h = data["width"], data["height"]
     # order by id 1..17
     lms = sorted(data["landmarks"], key=lambda d: d["id"])
-    pts = np.array([[lm["x"]/w, lm["y"]/h] for lm in lms], dtype=np.float32)  # (17,2) normalized
-    y = pts.reshape(-1)  # (34,)
+    pts = np.array([[lm["x"]/w, lm["y"]/h] for lm in lms], dtype=np.float32)
+    y = pts.reshape(-1)  
     return y
 
 class LandmarkDataset(Dataset):
@@ -43,15 +43,12 @@ class LandmarkDataset(Dataset):
         # resize image to fixed model input
         img = cv2.resize(img, (self.img_size, self.img_size), interpolation=cv2.INTER_AREA)
 
-        # optional light augmentation (safe)
         if self.augment:
-            # brightness/contrast
             if np.random.rand() < 0.5:
                 alpha = 0.9 + 0.2*np.random.rand()  # contrast
                 beta = np.random.randint(-15, 16)   # brightness
                 img = np.clip(alpha*img + beta, 0, 255).astype(np.uint8)
 
-        # to tensor [0,1]
         x = torch.from_numpy(img).permute(2,0,1).float() / 255.0
 
         y = load_label(lbl_path)  # (34,)
