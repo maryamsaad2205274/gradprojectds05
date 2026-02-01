@@ -46,17 +46,27 @@
       </div>
     </div>
 
-    <div class="row2">
-      <div class="field">
-        <label>Age (optional)</label>
-        <input class="input" type="text" name="age" placeholder="e.g., 21">
-      </div>
+    <div class="field">
+  <label>Patient Name</label>
+  <input class="input" type="text" name="name" placeholder="e.g., Sara Ali" required>
+</div>
 
-      <div class="field">
-        <label>Gender (optional)</label>
-        <input class="input" type="text" name="gender" placeholder="e.g., Female">
-      </div>
-    </div>
+
+ <div class="row2">
+  <div class="field">
+    <label>Age (optional)</label>
+    <input class="input" type="number" name="age" min="1" max="119" step="1" placeholder="e.g., 21">
+  </div>
+
+  <div class="field">
+    <label>Gender (optional)</label>
+    <select class="input" name="gender">
+      <option value="">—</option>
+      <option value="MALE">Male</option>
+      <option value="FEMALE">Female</option>
+    </select>
+  </div>
+</div>
 
     <div class="p-actions">
       <button class="btn btn--primary" type="submit">Create</button>
@@ -92,8 +102,17 @@
       <form class="admin-grid__form" method="POST"
             action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
         <input class="input input--sm admin-input" type="text" name="patient_code" value="{{ p.patient_code }}" required>
-        <input class="input input--sm admin-input" type="text" name="age" value="{{ p.age or '' }}" placeholder="—">
-        <input class="input input--sm admin-input" type="text" name="gender" value="{{ (p.gender or '')|upper }}" placeholder="—">
+        <input class="input" type="text" name="name" placeholder="Patient Name" required>
+        <input class="input input--sm admin-input" type="number" name="age"
+       value="{{ p.age if p.age is not none else '' }}"
+       min="1" max="119" step="1" placeholder="—">
+
+<select class="input input--sm admin-input" name="gender">
+  <option value="" {% if not p.gender %}selected{% endif %}>—</option>
+  <option value="MALE" {% if (p.gender or '')|upper == 'MALE' %}selected{% endif %}>Male</option>
+  <option value="FEMALE" {% if (p.gender or '')|upper == 'FEMALE' %}selected{% endif %}>Female</option>
+</select>
+
 
         <div class="admin-doctor">
           {% if p.doctor %}
