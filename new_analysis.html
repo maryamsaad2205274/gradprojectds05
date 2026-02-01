@@ -18,7 +18,7 @@
     <div class="step__num">1</div>
     <div class="step__text">
       <div class="step__title">Select Patient</div>
-      <div class="step__hint">Enter patient code</div>
+      <div class="step__hint">Choose or quick add</div>
     </div>
   </div>
 
@@ -39,26 +39,91 @@
   </div>
 </div>
 
-<form class="na-grid" action="{{ url_for('submit_analysis') }}" method="POST" enctype="multipart/form-data">
+<form class="na-grid" action="{{ url_for('new_analysis') }}" method="POST" enctype="multipart/form-data">
 
-  <!-- Left column: Patient + Upload -->
   <div class="na-left">
 
+    <!-- ✅ Quick Add Patient -->
     <div class="panel">
       <div class="panel__head">
         <div>
-          <h2 class="panel__title">Step 1: Patient</h2>
-          <p class="panel__sub">Use a code to identify the case (optional but recommended).</p>
+          <h2 class="panel__title">Add Patient (Quick)</h2>
+          <p class="panel__sub">Fill this ONLY if the patient is new. Otherwise select from the list below.</p>
         </div>
       </div>
 
-      <div class="field">
-        <label>Patient Code</label>
-        <input class="input" type="text" name="patient_code" placeholder="e.g., P-001">
-        <div class="field__hint">Tip: Use your clinic’s patient ID format.</div>
+      <div class="patient-add-grid">
+        <div class="field">
+          <label>Patient Name</label>
+          <input class="input" type="text" name="new_name" id="newName" placeholder="e.g., Ahmed Hassan">
+        </div>
+
+        <div class="field">
+          <label>Patient Code</label>
+          <input class="input" type="text" name="new_code" id="newCode" placeholder="e.g., P-014">
+        </div>
+
+        <div class="field">
+          <label>Age</label>
+          <input class="input" type="number" name="new_age" id="newAge" min="1" max="119" placeholder="e.g., 21">
+        </div>
+
+        <div class="field">
+          <label>Gender</label>
+          <select class="input" name="new_gender" id="newGender">
+            <option value="">—</option>
+            <option value="MALE">Male</option>
+            <option value="FEMALE">Female</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field__hint">
+        Tip: If you type a new patient code, you don’t need to select from the list.
       </div>
     </div>
 
+    <!-- ✅ Select Existing Patient -->
+    <div class="panel">
+      <div class="panel__head">
+        <div>
+          <h2 class="panel__title">Step 1: Select Patient</h2>
+          <p class="panel__sub">Choose an existing patient. Age and gender will appear automatically.</p>
+        </div>
+      </div>
+
+      <div class="patient-grid">
+        <div class="field">
+          <label>Patient</label>
+          <select class="input" name="patient_id" id="patientSelect">
+            <option value="">Select patient</option>
+            {% for p in patients %}
+              <option
+                value="{{ p.id }}"
+                data-age="{{ p.age or '' }}"
+                data-gender="{{ p.gender or '' }}"
+              >
+                {# show name if exists, else just code #}
+                {% if p.name %}{{ p.name }} ({{ p.patient_code }}){% else %}{{ p.patient_code }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <div class="field__hint">If you added a new patient above, you can leave this empty.</div>
+        </div>
+
+        <div class="field">
+          <label>Age</label>
+          <input class="input input--readonly" id="patientAge" disabled>
+        </div>
+
+        <div class="field">
+          <label>Gender</label>
+          <input class="input input--readonly" id="patientGender" disabled>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload -->
     <div class="panel">
       <div class="panel__head">
         <div>
@@ -73,7 +138,6 @@
             <div class="upload-box__title">Front View</div>
             <div class="upload-box__meta">JPG / PNG</div>
           </div>
-
           <input class="file" type="file" name="front" accept="image/*" required>
           <div class="upload-box__hint">Upload a straight-facing photo.</div>
         </div>
@@ -83,7 +147,6 @@
             <div class="upload-box__title">Side View</div>
             <div class="upload-box__meta">JPG / PNG</div>
           </div>
-
           <input class="file" type="file" name="side" accept="image/*" required>
           <div class="upload-box__hint">Upload a profile photo (right/left side).</div>
         </div>
@@ -92,13 +155,12 @@
 
     <div class="panel panel--actions">
       <button id="runBtn" class="btn btn--primary" type="submit">Run Detection</button>
-
       <a class="btn btn--ghost" href="{{ url_for('dashboard') }}">Cancel</a>
     </div>
 
   </div>
 
-  <!-- Right column: Quality checklist -->
+  <!-- Right -->
   <aside class="na-right">
     <div class="panel">
       <div class="panel__head">
@@ -124,6 +186,7 @@
   </aside>
 
 </form>
+
 <div id="loading" class="loading hidden">
   <div class="loading__card">
     <div class="spinner"></div>
@@ -133,6 +196,7 @@
 </div>
 
 <script>
+  // Loading state
   const form = document.querySelector(".na-grid");
   const loading = document.getElementById("loading");
   const runBtn = document.getElementById("runBtn");
@@ -142,6 +206,31 @@
     runBtn.innerText = "Processing…";
     loading.classList.remove("hidden");
   });
+
+  // Fill age/gender when selecting patient
+  const patientSelect = document.getElementById("patientSelect");
+  const patientAge = document.getElementById("patientAge");
+  const patientGender = document.getElementById("patientGender");
+
+  if (patientSelect) {
+    patientSelect.addEventListener("change", () => {
+      const opt = patientSelect.options[patientSelect.selectedIndex];
+      patientAge.value = opt.dataset.age || "";
+      patientGender.value = opt.dataset.gender || "";
+    });
+  }
+
+  // ✅ If user types a new patient code, we clear dropdown selection (so no conflict)
+  const newCode = document.getElementById("newCode");
+  if (newCode) {
+    newCode.addEventListener("input", () => {
+      if (newCode.value.trim().length > 0) {
+        patientSelect.value = "";
+        patientAge.value = "";
+        patientGender.value = "";
+      }
+    });
+  }
 </script>
 
 {% endblock %}
