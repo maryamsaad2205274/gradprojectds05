@@ -1,4 +1,3 @@
-<!-- templates/base.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -127,7 +126,6 @@
     <input placeholder="Search…" />
   </div>
 
-  <!-- Settings icon (opens dropdown) -->
   <div class="topbar__menu">
     <button class="iconbtn" type="button" id="settingsBtn" aria-label="Settings">
       ⚙️
@@ -139,7 +137,6 @@
     </div>
   </div>
 
-  <!-- Keep Profile button -->
  
 </div>
 
@@ -148,7 +145,6 @@
 
       <section class="content">
 
-        <!-- Flash messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             <div class="flash-wrap">
