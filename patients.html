@@ -6,16 +6,17 @@
 <div class="p-head">
   <div>
     <h1 class="p-title">Patients</h1>
-    <p class="p-sub">Manage your patients and start cases faster.</p>
+    <p class="p-sub">View your patients and their cases.</p>
   </div>
 
   <form class="p-search" method="GET" action="{{ url_for('patients') }}">
-    <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search patient code…">
-    <button class="btn btn--ghost" type="submit">Search</button>
+    <div class="p-search__group">
+      <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search patient code…">
+      <button class="btn btn--primary" type="submit">Search</button>
+    </div>
   </form>
 </div>
 
-<!-- Flash messages -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     <div class="messages">
@@ -26,103 +27,54 @@
   {% endif %}
 {% endwith %}
 
-<div class="p-grid">
-
-  <!-- Add patient -->
 <div class="panel">
-  <div class="panel__head">
+  <div class="panel__head p-panel-head">
     <div>
-      <h2 class="panel__title">Add Patient</h2>
-      <p class="panel__sub">Create a patient record using a code.</p>
+      <h2 class="panel__title">Patient List</h2>
+      <p class="panel__sub">All patients linked to your account.</p>
+    </div>
+
+    <div class="p-count">
+      {{ patients|length if patients else 0 }} Patients
     </div>
   </div>
 
-  <form method="POST" action="{{ url_for('patients') }}">
+  {% if patients and patients|length > 0 %}
+  <div class="p-table">
 
-    <div class="field">
-      <label>Patient Code</label>
-      <input
-  class="input"
-  type="number"
-  name="patient_code"
-  placeholder="e.g., 014"
-  required
-  min="1"
-  step="1"
->
-
+    <div class="p-table__head">
+      <div>Code</div>
+      <div>Name</div>
+      <div>Age</div>
+      <div>Gender</div>
+      <div>Created</div>
     </div>
 
-    <div class="row2">
-      <div class="field">
-        <label>Age (optional)</label>
-        <input
-          class="input"
-          type="number"
-          name="age"
-          min="1"
-          max="119"
-          placeholder="e.g., 21"
-        >
-      </div>
-
-      <div class="field">
-        <label>Gender (optional)</label>
-        <select class="input" name="gender">
-          <option value="">—</option>
-          <option value="MALE">Male</option>
-          <option value="FEMALE">Female</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="p-actions">
-      <button class="btn btn--primary" type="submit">
-        Add Patient
-      </button>
-    </div>
-
-  </form>
-</div>
-
-
-
-  <!-- Patients list -->
-  <div class="panel">
-    <div class="panel__head">
-      <div>
-        <h2 class="panel__title">Patient List</h2>
-        <p class="panel__sub">Click a patient to view their cases.</p>
-      </div>
-    </div>
-
-    {% if patients and patients|length > 0 %}
-      <div class="table">
-        <div class="table__head">
-          <div>Patient Code</div>
-          <div>Created</div>
-          <div class="t-right">Action</div>
+    {% for p in patients %}
+      <div class="p-table__row">
+        <div class="t-strong">{{ p.patient_code }}</div>
+        <div class="t-muted">{{ p.name or "-" }}</div>
+        <div class="t-muted">{{ p.age or "-" }}</div>
+        <div class="t-muted">{{ p.gender or "-" }}</div>
+        <div class="t-muted">{{ p.created_at.strftime("%Y-%m-%d") }}</div>
+        <div class="t-right">
+          <a class="btn btn--ghost btn--small"
+             href="{{ url_for('patient_cases', patient_id=p.id) }}">
+            View Cases
+          </a>
         </div>
-
-        {% for p in patients %}
-          <div class="table__row">
-            <div class="t-strong">{{ p.patient_code }}</div>
-            <div class="t-muted">{{ p.created_at.strftime("%Y-%m-%d") }}</div>
-            <div class="t-right">
-              <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=p.id) }}">View Cases</a>
-            </div>
-          </div>
-        {% endfor %}
       </div>
-    {% else %}
-      <div class="empty">
-        <div class="empty__title">No patients yet</div>
-        <div class="empty__text">Add a patient to start organizing cases by patient code.</div>
-      </div>
-    {% endif %}
+    {% endfor %}
 
   </div>
+{% else %}
 
+    <div class="empty">
+      <div class="empty__title">No patients yet</div>
+      <div class="empty__text">Add a patient from New Analysis to start.</div>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+    </div>
+  {% endif %}
 </div>
 
 {% endblock %}
