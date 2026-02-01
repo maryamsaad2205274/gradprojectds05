@@ -1086,6 +1086,31 @@ def admin_update_patient(patient_id):
     flash("Patient updated.", "success")
     return redirect(url_for("admin_patients"))
 
+@app.route("/about")
+@login_required
+def about():
+    return render_template("about.html", name=session.get("user_name"), active="about")
+
+
+@app.route("/contact", methods=["GET", "POST"])
+@login_required
+def contact():
+    if request.method == "POST":
+        # simple validation (you can later store in DB or send email)
+        name = request.form.get("name","").strip()
+        email = request.form.get("email","").strip()
+        subject = request.form.get("subject","").strip()
+        message = request.form.get("message","").strip()
+
+        if not name or not email or not subject or not message:
+            flash("Please fill all fields.", "error")
+            return redirect(url_for("contact"))
+
+        flash("Message sent successfully. Thank you!", "success")
+        return redirect(url_for("contact"))
+
+    return render_template("contact.html", name=session.get("user_name"), active="contact")
+
 
 @app.route("/admin/patients/<int:patient_id>/delete", methods=["POST"])
 @admin_required
