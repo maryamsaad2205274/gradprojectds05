@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Contact Us{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">Contact Us</h1>
+    <p class="dash-sub">Questions, feedback, or support — send us a message.</p>
+  </div>
+</div>
+
+<div class="contact-grid">
+
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Send a message</h2>
+        <p class="panel__sub">We typically respond within 1–2 business days.</p>
+      </div>
+    </div>
+
+    <form class="contact-form" method="POST" action="{{ url_for('contact') }}">
+      <div class="row2">
+        <div class="field">
+          <label>Your Name</label>
+          <input class="input" type="text" name="name" placeholder="e.g., Dr. Sara" required>
+        </div>
+
+        <div class="field">
+          <label>Email</label>
+          <input class="input" type="email" name="email" placeholder="e.g., sara@gmail.com" required>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Subject</label>
+        <input class="input" type="text" name="subject" placeholder="e.g., Report download issue" required>
+      </div>
+
+      <div class="field">
+        <label>Message</label>
+        <textarea class="textarea" name="message" rows="6" placeholder="Write your message…" required></textarea>
+      </div>
+
+      <div class="contact-actions">
+        <button class="btn btn--primary" type="submit">Send Message</button>
+        <a class="btn btn--ghost" href="{{ url_for('dashboard') }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <aside class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Support</h2>
+        <p class="panel__sub">Contact details</p>
+      </div>
+    </div>
+
+    <div class="contact-box">
+      <div class="contact-item">
+        <div class="contact-label">Email</div>
+        <div class="contact-value">dentallandmark.support@gmail.com</div>
+      </div>
+
+      <div class="contact-item">
+        <div class="contact-label">Location</div>
+        <div class="contact-value">Cairo, Egypt</div>
+      </div>
+
+      <div class="contact-item">
+        <div class="contact-label">Availability</div>
+        <div class="contact-value">Sun – Thu • 9:00 AM – 5:00 PM</div>
+      </div>
+
+      <div class="contact-note">
+        Please do not include sensitive patient data in messages.
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+{% endblock %}
