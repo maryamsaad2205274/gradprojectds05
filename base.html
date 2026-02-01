@@ -1,3 +1,4 @@
+<!-- templates/base.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,53 +14,85 @@
     <aside class="sidebar">
       <div class="sidebar__brand">
         <div class="logo-dot"></div>
-        <span>DentalLandmark</span>
+
+        {% if session.get("role") == "ADMIN" %}
+          <span>DentalLandmark Admin</span>
+        {% else %}
+          <span>DentalLandmark</span>
+        {% endif %}
       </div>
 
       <nav class="nav">
-        <a class="nav__item {% if active=='dashboard' %}is-active{% endif %}" href="{{ url_for('dashboard') }}">
-  <span class="nav__icon">🏠</span> Dashboard
+
+        {# ===========================
+           ADMIN MENU (only)
+           =========================== #}
+        {% if session.get("role") == "ADMIN" %}
+
+          <a class="nav__item {% if active=='admin_dashboard' %}is-active{% endif %}"
+             href="{{ url_for('admin_dashboard') }}">
+            <span class="nav__icon">🛡️</span> Admin Dashboard
+          </a>
+
+          <a class="nav__item {% if active=='admin_users' %}is-active{% endif %}"
+             href="{{ url_for('admin_users') }}">
+            <span class="nav__icon">👤</span> Users
+          </a>
+
+          <a class="nav__item {% if active=='admin_patients' %}is-active{% endif %}"
+             href="{{ url_for('admin_patients') }}">
+             <span class="nav__icon">🧾</span> Patients
+          </a>
+
+
+          <a class="nav__item {% if active=='admin_datasets' %}is-active{% endif %}"
+             href="{{ url_for('admin_datasets') }}">
+            <span class="nav__icon">🗂️</span> Datasets
+          </a>
+
+          {# If you later add admin patients/reports pages, add them here #}
+          {# <a class="nav__item {% if active=='admin_patients' %}is-active{% endif %}" href="{{ url_for('admin_patients') }}">👥 Patients</a> #}
+
+        {# ===========================
+           DOCTOR MENU (only)
+           =========================== #}
+        {% else %}
+
+          <a class="nav__item {% if active=='dashboard' %}is-active{% endif %}"
+             href="{{ url_for('dashboard') }}">
+            <span class="nav__icon">🏠</span> Dashboard
+          </a>
+
+          <a class="nav__item {% if active=='new_analysis' %}is-active{% endif %}"
+             href="{{ url_for('new_analysis') }}">
+            <span class="nav__icon">➕</span> New Analysis
+          </a>
+
+          <a class="nav__item {% if active=='cases' %}is-active{% endif %}"
+             href="{{ url_for('history') }}">
+            <span class="nav__icon">📁</span> Cases
+          </a>
+
+          <a class="nav__item {% if active=='patients' %}is-active{% endif %}"
+             href="{{ url_for('patients') }}">
+            <span class="nav__icon">👥</span> Patients
+          </a>
+
+          <a class="nav__item {% if active=='reports' %}is-active{% endif %}"
+             href="{{ url_for('reports') }}">
+            <span class="nav__icon">📄</span> Reports
+          </a>
+<a class="nav__item {% if active=='about' %}is-active{% endif %}" href="{{ url_for('about') }}">
+  <span class="nav__icon">ℹ️</span> About Us
 </a>
 
-<a class="nav__item {% if active=='new_analysis' %}is-active{% endif %}" href="{{ url_for('new_analysis') }}">
-  <span class="nav__icon">➕</span> New Analysis
+<a class="nav__item {% if active=='contact' %}is-active{% endif %}" href="{{ url_for('contact') }}">
+  <span class="nav__icon">✉️</span> Contact Us
 </a>
 
-<a class="nav__item {% if active=='cases' %}is-active{% endif %}" href="{{ url_for('history') }}">
-  <span class="nav__icon">📁</span> Cases
-</a>
+          
 
-<a class="nav__item {% if active=='settings' %}is-active{% endif %}" href="{{ url_for('profile') }}">
-  <span class="nav__icon">⚙️</span> Settings
-</a>
-
-<a class="nav__item {% if active=='patients' %}is-active{% endif %}" href="{{ url_for('patients') }}">
-  <span class="nav__icon">👥</span> Patients
-</a>
-<a class="nav__item {% if active=='reports' %}is-active{% endif %}" href="{{ url_for('reports') }}">
-  <span class="nav__icon">📄</span> Reports
-</a>
-
-
-{% if session.get("role") == "ADMIN" %}
-  <div class="nav__section">Admin</div>
-
-  <a class="nav__item {% if active=='admin_dashboard' %}is-active{% endif %}"
-     href="{{ url_for('admin_dashboard') }}">
-    <span class="nav__icon">🛡️</span> Admin Dashboard
-  </a>
-
-  <a class="nav__item {% if active=='admin_users' %}is-active{% endif %}"
-     href="{{ url_for('admin_users') }}">
-    <span class="nav__icon">👤</span> Users
-  </a>
-
-  <a class="nav__item {% if active=='admin_datasets' %}is-active{% endif %}"
-     href="{{ url_for('admin_datasets') }}">
-    <span class="nav__icon">🗂️</span> Datasets
-  </a>
-{% endif %}
-
+        {% endif %}
 
       </nav>
 
@@ -68,8 +101,7 @@
           <div class="userpill__avatar">{{ (name or "D")[0] }}</div>
           <div class="userpill__meta">
             <div class="userpill__name">{{ name or "Doctor" }}</div>
-           <div class="userpill__role">{{ session.get("role","DOCTOR") }}</div>
-
+            <div class="userpill__role">{{ session.get("role","DOCTOR") }}</div>
           </div>
         </div>
 
@@ -81,34 +113,72 @@
     <main class="main">
       <header class="topbar">
         <div class="topbar__left">
-          <div class="crumb">Dashboard</div>
-        </div>
-        <div class="topbar__right">
-          <div class="search">
-            <input placeholder="Search…" />
+          <div class="crumb">
+            {% if session.get("role") == "ADMIN" %}
+              Admin
+            {% else %}
+              Dashboard
+            {% endif %}
           </div>
-          <a class="topbar__btn" href="{{ url_for('profile') }}">Profile</a>
         </div>
+
+        <div class="topbar__right">
+  <div class="search">
+    <input placeholder="Search…" />
+  </div>
+
+  <!-- Settings icon (opens dropdown) -->
+  <div class="topbar__menu">
+    <button class="iconbtn" type="button" id="settingsBtn" aria-label="Settings">
+      ⚙️
+    </button>
+
+    <div class="menu hidden" id="settingsMenu">
+      <a class="menu__item" href="{{ url_for('profile') }}">Settings</a>
+      <a class="menu__item" href="{{ url_for('logout') }}">Logout</a>
+    </div>
+  </div>
+
+  <!-- Keep Profile button -->
+ 
+</div>
+
+        
       </header>
 
       <section class="content">
+
+        <!-- Flash messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <div class="flash-wrap">
-      {% for category, msg in messages %}
-        <div class="flash flash--{{ category }}">{{ msg }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
+          {% if messages %}
+            <div class="flash-wrap">
+              {% for category, msg in messages %}
+                <div class="flash flash--{{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
 
         {% block content %}{% endblock %}
       </section>
     </main>
 
   </div>
+  <script>
+  const btn = document.getElementById("settingsBtn");
+  const menu = document.getElementById("settingsMenu");
+
+  if (btn && menu) {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.classList.toggle("hidden");
+    });
+
+    window.addEventListener("click", () => {
+      menu.classList.add("hidden");
+    });
+  }
+</script>
+
 </body>
 </html>
-
-
-
