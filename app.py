@@ -14,6 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 import re
+from PIL import Image
 
 #verification
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -58,9 +59,14 @@ class User(db.Model):
 class Case(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    patient_code = db.Column(db.String(60), nullable=True)
-    status = db.Column(db.String(20), default="PENDING")  # PENDING/COMPLETED/FAILED
+
+    # ✅ add these:
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=True)
+    patient = db.relationship("Patient", backref="cases")
+
+    status = db.Column(db.String(20), default="PENDING")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class Image(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -79,123 +85,202 @@ class Result(db.Model):
 
 class Patient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+
+    patient_code = db.Column(db.String(50), nullable=False)
+    name = db.Column(db.String(120), nullable=True)   
+
+    age = db.Column(db.Integer)
+    gender = db.Column(db.String(10))
     doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-
-    patient_code = db.Column(db.Integer, nullable=False)
-    age = db.Column(db.Integer, nullable=True)
-    gender = db.Column(db.String(10), nullable=True)
-
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
     file_path = db.Column(db.String(300), nullable=False)  # e.g. static/reports/case_1_report.pdf
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-def generate_case_pdf(case, front, side, front_points, side_points):
-    os.makedirs("static/reports", exist_ok=True)
-    pdf_path = os.path.join("static", "reports", f"case_{case.id}_report.pdf")
 
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    from reportlab.lib.utils import ImageReader
+def _as_xy_list(points):
+    out = []
+    for p in points or []:
+        if isinstance(p, dict):
+            out.append((float(p.get("x", 0)), float(p.get("y", 0))))
+        else:
+            out.append((float(p[0]), float(p[1])))
+    return out
+
+def _draw_points_table(c, title, points_xy, x0, y0, row_h=14):
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(x0, y0, title)
+
+    c.setFont("Helvetica", 10)
+    y = y0 - 18
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x0, y, "ID")
+    c.drawString(x0 + 50, y, "X")
+    c.drawString(x0 + 120, y, "Y")
+    c.setFont("Helvetica", 10)
+    y -= row_h
+
+    for i, (xv, yv) in enumerate(points_xy[:17], start=1):
+        if y < 60:
+            c.showPage()
+            y = 780
+            c.setFont("Helvetica", 10)
+        c.drawString(x0, y, f"{i:02d}")
+        c.drawString(x0 + 50, y, f"{xv:.1f}")
+        c.drawString(x0 + 120, y, f"{yv:.1f}")
+        y -= row_h
+
+
+import os, json
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+
+def _as_xy_list(points):
+    """Supports dict {'x','y'} and legacy [x,y]. Returns list of (x,y)."""
+    out = []
+    for p in points or []:
+        if isinstance(p, dict):
+            out.append((float(p.get("x", 0)), float(p.get("y", 0))))
+        else:
+            out.append((float(p[0]), float(p[1])))
+    return out
+
+def _draw_points_table(c, title, points_xy, x0, y0, row_h=14):
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(x0, y0, title)
+
+    c.setFont("Helvetica", 10)
+    y = y0 - 18
+
+    # header
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x0, y, "ID")
+    c.drawString(x0 + 50, y, "X")
+    c.drawString(x0 + 120, y, "Y")
+    c.setFont("Helvetica", 10)
+    y -= row_h
+
+    for i, (xv, yv) in enumerate(points_xy[:17], start=1):
+        if y < 60:          # page bottom margin
+            c.showPage()
+            y = 780
+            c.setFont("Helvetica", 10)
+        c.drawString(x0, y, f"{i:02d}")
+        c.drawString(x0 + 50, y, f"{xv:.1f}")
+        c.drawString(x0 + 120, y, f"{yv:.1f}")
+        y -= row_h
+
+
+def generate_case_pdf(case, front, side, front_points, side_points, patient=None, doctor_name=None):
+    os.makedirs("static/reports", exist_ok=True)
+    pdf_path = os.path.join("static/reports", f"case_{case.id}_report.pdf")
 
     c = canvas.Canvas(pdf_path, pagesize=A4)
-    width, height = A4
+    W, H = A4
 
-    def header(title):
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(2*cm, height - 2*cm, title)
+    # ------------------------
+    # Safe values
+    # ------------------------
+    doctor_name = doctor_name or "—"
 
-        c.setFont("Helvetica", 10)
-        y = height - 2.8*cm
-        c.drawString(2*cm, y, f"Doctor: {session.get('user_name','Doctor')}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Case ID: {case.id}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Patient Code: {case.patient_code or '-'}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Status: {case.status}")
-        y -= 0.55*cm
-        c.drawString(2*cm, y, f"Created At: {case.created_at.strftime('%Y-%m-%d %H:%M')}")
-        return y - 0.8*cm
+    # patient may be None if not linked
+    patient_name = getattr(patient, "name", None) or "—"
+    patient_age = getattr(patient, "age", None)
+    patient_gender = getattr(patient, "gender", None)
 
-    def abs_path(rel_path):
-        if not rel_path:
-            return None
-        return os.path.join(BASE_DIR, rel_path.replace("/", os.sep))
+    # code can be in patient or case (depending on your DB)
+    patient_code = getattr(patient, "patient_code", None) or getattr(patient, "code", None) or (case.patient_code or "—")
 
-    def draw_image_block(img_path, title, y_start):
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(2*cm, y_start, title)
-        y = y_start - 0.6*cm
+    # display strings
+    age_str = str(patient_age) if patient_age is not None else "—"
+    gender_str = patient_gender if patient_gender else "—"
 
-        if img_path and os.path.exists(img_path):
-            max_w = width - 4*cm
-            max_h = 9*cm
-            img = ImageReader(img_path)
-            iw, ih = img.getSize()
-            scale = min(max_w/iw, max_h/ih)
-            w = iw * scale
-            h = ih * scale
-            c.drawImage(img, 2*cm, y - h, width=w, height=h, preserveAspectRatio=True, mask='auto')
-            y = y - h - 0.8*cm
-        else:
-            c.setFont("Helvetica", 10)
-            c.drawString(2*cm, y, "Image not available.")
-            y -= 1.0*cm
-        return y
+    # ======================
+    # PAGE 1 (HEADER + FRONT)
+    # ======================
 
-    def draw_coords_table(points, title, y_start):
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(2*cm, y_start, title)
-        y = y_start - 0.7*cm
+    # ---- Title ----
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(40, H - 50, f"Orthodontic Landmark Report (Case #{case.id})")
 
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(2*cm, y, "ID")
-        c.drawString(4*cm, y, "X")
-        c.drawString(8*cm, y, "Y")
-        y -= 0.5*cm
+    # ---- Case Info Block ----
+    y = H - 85
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(40, y, "Case Information")
+    y -= 14
 
-        c.setFont("Helvetica", 10)
-        row_h = 0.45*cm
-        for i, p in enumerate(points[:17], start=1):
-            if y < 2*cm:
-                c.showPage()
-                y = height - 2*cm
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(2*cm, y, title + " (cont.)")
-                y -= 0.9*cm
-                c.setFont("Helvetica-Bold", 10)
-                c.drawString(2*cm, y, "ID")
-                c.drawString(4*cm, y, "X")
-                c.drawString(8*cm, y, "Y")
-                y -= 0.5*cm
-                c.setFont("Helvetica", 10)
+    c.setFont("Helvetica", 11)
+    c.drawString(40, y, f"Doctor: {doctor_name}")
+    y -= 16
+    c.drawString(40, y, f"Patient Name: {patient_name}")
+    y -= 16
+    c.drawString(40, y, f"Patient Code: {patient_code}")
+    y -= 16
+    c.drawString(40, y, f"Age: {age_str}    Gender: {gender_str}")
+    y -= 16
+    c.drawString(40, y, f"Status: {case.status}")
+    y -= 16
+    c.drawString(40, y, f"Created: {case.created_at.strftime('%Y-%m-%d %H:%M')}")
 
-            x_val = p[0] if isinstance(p, (list, tuple)) and len(p) > 0 else ""
-            y_val = p[1] if isinstance(p, (list, tuple)) and len(p) > 1 else ""
+    # ---- FRONT PAGE: overlay + coords ----
+    front_xy = _as_xy_list(front_points)
 
-            c.drawString(2*cm, y, str(i))
-            c.drawString(4*cm, y, str(x_val))
-            c.drawString(8*cm, y, str(y_val))
-            y -= row_h
+    y_cursor = y - 30  # start after info block
 
-        return y - 0.6*cm
+    if front and front.overlay_path and os.path.exists(front.overlay_path):
+        img = ImageReader(front.overlay_path)
+        img_w = 260
+        img_h = 260
+        c.drawImage(
+            img,
+            40,
+            y_cursor - img_h,
+            width=img_w,
+            height=img_h,
+            preserveAspectRatio=True,
+            mask='auto'
+        )
+        _draw_points_table(c, "Front Landmarks (X,Y)", front_xy, x0=320, y0=y_cursor)
+    else:
+        _draw_points_table(c, "Front Landmarks (X,Y)", front_xy, x0=40, y0=y_cursor)
 
-    # Page 1
-    y = header("DentalLandmark — Case Report")
-    front_img = abs_path(front.overlay_path) if front else None
-    side_img = abs_path(side.overlay_path) if side else None
-    y = draw_image_block(front_img, "Front Overlay", y)
-    y = draw_image_block(side_img, "Side Overlay", y)
-
-    # Page 2
     c.showPage()
-    y = header("Landmark Coordinates")
-    y = draw_coords_table(front_points, "Front Landmarks (first 17)", y)
-    y = draw_coords_table(side_points, "Side Landmarks (first 17)", y)
+
+    # ======================
+    # PAGE 2 (SIDE)
+    # ======================
+
+    # Optional: repeat small header on page 2
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(40, H - 50, f"Case #{case.id} — Side View Results")
+
+    c.setFont("Helvetica", 11)
+    c.drawString(40, H - 70, f"Patient: {patient_name}   |   Code: {patient_code}")
+
+    side_xy = _as_xy_list(side_points)
+
+    y_cursor = H - 100
+    if side and side.overlay_path and os.path.exists(side.overlay_path):
+        img = ImageReader(side.overlay_path)
+        img_w = 260
+        img_h = 260
+        c.drawImage(
+            img,
+            40,
+            y_cursor - img_h,
+            width=img_w,
+            height=img_h,
+            preserveAspectRatio=True,
+            mask='auto'
+        )
+        _draw_points_table(c, "Side Landmarks (X,Y)", side_xy, x0=320, y0=y_cursor)
+    else:
+        _draw_points_table(c, "Side Landmarks (X,Y)", side_xy, x0=40, y0=y_cursor)
 
     c.save()
     return pdf_path
@@ -376,753 +461,103 @@ def dashboard():
     )
 
 
-@app.route("/new-analysis")
+@app.route("/new-analysis", methods=["GET", "POST"])
 @login_required
 def new_analysis():
-    return render_template("new_analysis.html", name=session.get("user_name"), active="new_analysis")
 
-@app.route("/history")
-@login_required
-def history():
-    doctor_id = session["user_id"]
+    # =========================
+    # GET → show form + patients
+    # =========================
+    if request.method == "GET":
+        patients = Patient.query.filter_by(
+            doctor_id=session["user_id"]
+        ).order_by(Patient.patient_code).all()
 
-    q = request.args.get("q", "").strip()
-    status = request.args.get("status", "ALL").strip().upper()
-
-    query = Case.query.filter_by(doctor_id=doctor_id)
-
-    if status != "ALL":
-        query = query.filter(Case.status == status)
-
-    if q:
-        # Search by patient_code OR by case id if q is numeric
-        if q.isdigit():
-            query = query.filter(Case.id == int(q))
-        else:
-            query = query.filter(Case.patient_code.ilike(f"%{q}%"))
-
-    cases = query.order_by(Case.created_at.desc()).all()
-
-    # counts for filter chips
-    counts = {
-        "ALL": Case.query.filter_by(doctor_id=doctor_id).count(),
-        "COMPLETED": Case.query.filter_by(doctor_id=doctor_id, status="COMPLETED").count(),
-        "PENDING": Case.query.filter_by(doctor_id=doctor_id, status="PENDING").count(),
-        "FAILED": Case.query.filter_by(doctor_id=doctor_id, status="FAILED").count(),
-    }
-
-    return render_template(
-        "history.html",
-        name=session.get("user_name"),
-        active="cases",
-        cases=cases,
-        q=q,
-        status=status,
-        counts=counts
-    )
-@app.route("/case/<int:case_id>/delete", methods=["POST"])
-@login_required
-def delete_case(case_id):
-    case = Case.query.get_or_404(case_id)
-
-    # Security: only owner
-    if case.doctor_id != session["user_id"]:
-        flash("Not allowed.", "error")
-        return redirect(url_for("history"))
-
-    # Delete related records first
-    Result.query.filter_by(case_id=case_id).delete()
-    Image.query.filter_by(case_id=case_id).delete()
-
-    db.session.delete(case)
-    db.session.commit()
-
-    flash("Case deleted.", "success")
-    return redirect(url_for("history"))
-
-
-@app.route("/profile", methods=["GET", "POST"])
-@login_required
-def profile():
-    user = User.query.get(session["user_id"])
-
-    if request.method == "POST":
-        action = request.form.get("action", "")
-
-        # Update name
-        if action == "update_name":
-            new_name = request.form.get("name", "").strip()
-            if not new_name:
-                flash("Name cannot be empty.", "error")
-                return redirect(url_for("profile"))
-
-            user.name = new_name
-            db.session.commit()
-            session["user_name"] = new_name
-            flash("Profile updated.", "success")
-            return redirect(url_for("profile"))
-
-        # Change password
-        if action == "change_password":
-            current_pw = request.form.get("current_password", "")
-            new_pw = request.form.get("new_password", "")
-            confirm_pw = request.form.get("confirm_password", "")
-
-            if not check_password_hash(user.password_hash, current_pw):
-                flash("Current password is incorrect.", "error")
-                return redirect(url_for("profile"))
-
-            if len(new_pw) < 6:
-                flash("New password must be at least 6 characters.", "error")
-                return redirect(url_for("profile"))
-
-            if new_pw != confirm_pw:
-                flash("New passwords do not match.", "error")
-                return redirect(url_for("profile"))
-
-            user.password_hash = generate_password_hash(new_pw)
-            db.session.commit()
-            flash("Password updated successfully.", "success")
-            return redirect(url_for("profile"))
-
-    return render_template(
-        "profile.html",
-        name=session.get("user_name"),
-        active="settings",
-        user=user
-    )
-
-@app.route("/patients", methods=["GET", "POST"])
-@login_required
-def patients():
-    doctor_id = session["user_id"]
-
-    # ------------------
-    # ADD PATIENT
-    # ------------------
-    if request.method == "POST":
-        patient_code = request.form.get("patient_code", "").strip()
-        age = request.form.get("age", "").strip()
-        gender = request.form.get("gender", "").strip().upper()
-
-        # -------- VERIFICATION --------
-        if not patient_code.isdigit():
-            flash("Patient code must contain numbers only.", "error")
-            return redirect(url_for("patients"))
-        patient_code= int(patient_code)
-        
-        if age:
-            if not age.isdigit() or not (0 < int(age) < 120):
-                flash("Age must be a valid number (1–119).", "error")
-                return redirect(url_for("patients"))
-            age = int(age)
-        else:
-            age = None
-
-        if gender and gender not in ["MALE", "FEMALE"]:
-            flash("Gender must be Male or Female.", "error")
-            return redirect(url_for("patients"))
-
-        # -------- VALIDATION --------
-        existing = Patient.query.filter_by(
-            doctor_id=doctor_id,
-            patient_code=patient_code
-        ).first()
-
-        if existing:
-            flash("Patient code already exists for you.", "error")
-            return redirect(url_for("patients"))
-
-        # -------- SAVE --------
-        p = Patient(
-            doctor_id=doctor_id,
-            patient_code=patient_code,
-            age=age,
-            gender=gender
+        return render_template(
+            "new_analysis.html",
+            name=session.get("user_name"),
+            active="new_analysis",
+            patients=patients
         )
-        db.session.add(p)
-        db.session.commit()
 
-
-
-        flash("Patient added successfully.", "success")
-        return redirect(url_for("patients"))
-
-    # ------------------
-    # LIST PATIENTS
-    # ------------------
-    q = request.args.get("q", "").strip()
-    query = Patient.query.filter_by(doctor_id=doctor_id)
-
-    if q:
-        query = query.filter(Patient.patient_code.ilike(f"%{q}%"))
-
-    patients_list = query.order_by(Patient.created_at.desc()).all()
-
-    return render_template(
-        "patients.html",
-        name=session.get("user_name"),
-        active="patients",
-        patients=patients_list,
-        q=q
-    )
-
-
-
-@app.route("/patients/<int:patient_id>/cases")
-@login_required
-def patient_cases(patient_id):
-    doctor_id = session["user_id"]
-
-    # -------- VALIDATION --------
-    patient = Patient.query.filter_by(
-        id=patient_id,
-        doctor_id=doctor_id
-    ).first_or_404()
-
-    cases = (
-        Case.query
-        .filter_by(
-            doctor_id=doctor_id,
-            patient_code=patient.patient_code
-        )
-        .order_by(Case.created_at.desc())
-        .all()
-    )
-
-    return render_template(
-        "patient_cases.html",
-        name=session.get("user_name"),
-        active="patients",
-        patient=patient,
-        cases=cases
-    )
-
-
-
-@app.route("/submit-analysis", methods=["POST"])
-@login_required
-def submit_analysis():
+    # =========================
+    # POST → run analysis
+    # =========================
     front_file = request.files.get("front")
-    side_file = request.files.get("side")
-    patient_code = request.form.get("patient_code", "").strip()
+    side_file  = request.files.get("side")
 
+    # Quick-add fields (top form)
+    new_name   = (request.form.get("new_name") or "").strip()
+    new_code   = (request.form.get("new_code") or "").strip()
+    new_age    = (request.form.get("new_age") or "").strip()
+    new_gender = (request.form.get("new_gender") or "").strip().upper()
+
+    # Existing patient selection
+    patient_id = (request.form.get("patient_id") or "").strip()
+
+    # Must have images
     if not front_file or not side_file:
         flash("Please upload both front and side images.", "error")
         return redirect(url_for("new_analysis"))
 
-    os.makedirs("static/uploads", exist_ok=True)
-    os.makedirs("static/results", exist_ok=True)
+    # -------------------------
+    # Decide which patient to use
+    # -------------------------
+    patient = None
 
-    # 1) Create case as PENDING immediately
-    new_case = Case(
-        doctor_id=session["user_id"],
-        patient_code=patient_code,
-        status="PENDING"
-    )
-    db.session.add(new_case)
-    db.session.commit()
+    if new_code:
+        # normalize code
+        new_code = new_code.upper()
 
-    try:
-        # 2) Save images
-        front_name = f"{new_case.id}_front_{uuid.uuid4().hex}.jpg"
-        side_name  = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
+        # if patient already exists for this doctor → reuse it
+        patient = Patient.query.filter_by(
+            patient_code=new_code,
+            doctor_id=session["user_id"]
+        ).first()
 
-        front_path = os.path.join("static/uploads", front_name)
-        side_path  = os.path.join("static/uploads", side_name)
+        if not patient:
+            # require name if creating new patient
+            if not new_name:
+                flash("Please enter the patient name.", "error")
+                return redirect(url_for("new_analysis"))
 
-        front_file.save(front_path)
-        side_file.save(side_path)
+            # validate age
+            age_val = None
+            if new_age:
+                try:
+                    age_val = int(new_age)
+                    if age_val < 1 or age_val > 119:
+                        raise ValueError()
+                except Exception:
+                    flash("Age must be a valid number between 1 and 119.", "error")
+                    return redirect(url_for("new_analysis"))
 
-        db.session.add(Image(case_id=new_case.id, view_type="FRONT", file_path=front_path))
-        db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_path))
-        db.session.commit()
+            # validate gender (optional)
+            if new_gender and new_gender not in ["MALE", "FEMALE"]:
+                flash("Gender must be MALE or FEMALE (or leave it empty).", "error")
+                return redirect(url_for("new_analysis"))
 
-        # 3) Predict landmarks
-        front_points = predict_landmarks(front_path)
-        side_points  = predict_landmarks(side_path)
+            # create patient
+            patient = Patient(
+                patient_code=new_code,
+                name=new_name,
+                age=age_val,
+                gender=new_gender if new_gender else None,
+                doctor_id=session["user_id"]
+            )
+            db.session.add(patient)
+            db.session.commit()
 
-        # 4) Draw overlays
-        front_overlay = os.path.join("static/results", f"{new_case.id}_front_overlay.jpg")
-        side_overlay  = os.path.join("static/results", f"{new_case.id}_side_overlay.jpg")
-
-        draw_points(front_path, front_points, front_overlay)
-        draw_points(side_path, side_points, side_overlay)
-
-        # 5) Save results
-        db.session.add(Result(
-            case_id=new_case.id,
-            view_type="FRONT",
-            landmarks_json=json.dumps(front_points),
-            overlay_path=front_overlay
-        ))
-        db.session.add(Result(
-            case_id=new_case.id,
-            view_type="SIDE",
-            landmarks_json=json.dumps(side_points),
-            overlay_path=side_overlay
-        ))
-
-        new_case.status = "COMPLETED"
-        db.session.commit()
-
-        return redirect(url_for("view_result", case_id=new_case.id))
-
-    except Exception as e:
-        # If anything fails, mark FAILED
-        new_case.status = "FAILED"
-        db.session.commit()
-
-        flash(f"Analysis failed: {str(e)}", "error")
-        return redirect(url_for("history"))
-
-
-
-@app.route("/result/<int:case_id>")
-@login_required
-def view_result(case_id):
-    case = Case.query.get_or_404(case_id)
-
-    # Security: ensure doctor owns the case
-    if case.doctor_id != session["user_id"]:
-        flash("You are not allowed to view this case.", "error")
-        return redirect(url_for("dashboard"))
-
-    front = Result.query.filter_by(case_id=case_id, view_type="FRONT").first()
-    side = Result.query.filter_by(case_id=case_id, view_type="SIDE").first()
-    # 🔹 Get original uploaded images (for landmark editing)
-    front_img = Image.query.filter_by(case_id=case_id, view_type="FRONT").first()
-    side_img  = Image.query.filter_by(case_id=case_id, view_type="SIDE").first()
-
-    front_original = "/" + front_img.file_path if front_img else None
-    side_original  = "/" + side_img.file_path if side_img else None
-
-    # Parse landmarks JSON safely
-    def parse_points(r):
-        if not r:
-            return []
-        try:
-            return json.loads(r.landmarks_json)
-        except Exception:
-            return []
-
-    front_points = parse_points(front)
-    side_points = parse_points(side)
-
-    return render_template(
-    "result.html",
-    name=session.get("user_name"),
-    active="cases",
-    case=case,
-    front_overlay="/" + front.overlay_path if front else None,
-    side_overlay="/" + side.overlay_path if side else None,
-    front_points=front_points,
-    side_points=side_points,
-    front_original=front_original,
-    side_original=side_original
-)
-
-
-@app.route("/report/<int:case_id>")
-@login_required
-def download_report(case_id):
-    case = Case.query.get_or_404(case_id)
-    if case.doctor_id != session["user_id"]:
-        flash("Not allowed.", "error")
-        return redirect(url_for("dashboard"))
-
-    front = Result.query.filter_by(case_id=case_id, view_type="FRONT").first()
-    side = Result.query.filter_by(case_id=case_id, view_type="SIDE").first()
-
-    def parse_points(r):
-        if not r:
-            return []
-        try:
-            return json.loads(r.landmarks_json)
-        except Exception:
-            return []
-
-    front_points = parse_points(front)
-    side_points = parse_points(side)
-
-    # Generate pdf file
-    pdf_path = generate_case_pdf(case, front, side, front_points, side_points)
-
-    # Save/Update report record
-    existing = Report.query.filter_by(case_id=case_id).first()
-    if existing:
-        existing.file_path = pdf_path
-        existing.created_at = datetime.utcnow()
     else:
-        db.session.add(Report(case_id=case_id, file_path=pdf_path))
-    db.session.commit()
-
-    return send_file(pdf_path, as_attachment=True, download_name=f"case_{case_id}_report.pdf")
-
-@app.route("/reports")
-@login_required
-def reports():
-    doctor_id = session["user_id"]
-
-    # show only cases belonging to this doctor
-    cases = Case.query.filter_by(doctor_id=doctor_id).order_by(Case.created_at.desc()).all()
-
-    # map case_id -> report
-    reps = Report.query.join(Case, Report.case_id == Case.id).filter(Case.doctor_id == doctor_id).all()
-    rep_map = {r.case_id: r for r in reps}
-
-    return render_template(
-        "reports.html",
-        name=session.get("user_name"),
-        active="reports",
-        cases=cases,
-        rep_map=rep_map
-    )
-@app.route("/case/<int:case_id>/update-landmarks", methods=["POST"])
-@login_required
-def update_landmarks(case_id):
-    case = Case.query.get_or_404(case_id)
-    if case.doctor_id != session["user_id"]:
-        flash("Not allowed.", "error")
-        return redirect(url_for("dashboard"))
-
-    view_type = request.form.get("view_type", "").strip().upper()  # FRONT or SIDE
-    points_json = request.form.get("points_json", "").strip()
-
-    if view_type not in ["FRONT", "SIDE"]:
-        flash("Invalid view type.", "error")
-        return redirect(url_for("view_result", case_id=case_id))
-
-    # Validate JSON
-    try:
-        points = json.loads(points_json)
-        if not isinstance(points, list) or len(points) == 0:
-            raise ValueError("Empty points")
-    except Exception:
-        flash("Invalid landmarks data.", "error")
-        return redirect(url_for("view_result", case_id=case_id))
-
-    # Update result row
-    res = Result.query.filter_by(case_id=case_id, view_type=view_type).first()
-    if not res:
-        flash("Result not found for this view.", "error")
-        return redirect(url_for("view_result", case_id=case_id))
-
-    res.landmarks_json = json.dumps(points)
-
-    # Re-draw overlay using original uploaded image
-    img_row = Image.query.filter_by(case_id=case_id, view_type=view_type).first()
-    if not img_row:
-        flash("Original image not found.", "error")
-        return redirect(url_for("view_result", case_id=case_id))
-
-    os.makedirs("static/results", exist_ok=True)
-    new_overlay = os.path.join("static/results", f"{case_id}_{view_type.lower()}_overlay.jpg")
-
-    draw_points(img_row.file_path, points, new_overlay)
-    res.overlay_path = new_overlay
-
-    db.session.commit()
-    flash(f"{view_type} landmarks updated.", "success")
-    return redirect(url_for("view_result", case_id=case_id))
-
-@app.route("/logout")
-@login_required
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-@app.route("/admin")
-@admin_required
-def admin_dashboard():
-    # example stats
-    total_users = User.query.count()
-    total_cases = Case.query.count()
-    completed_cases = Case.query.filter_by(status="COMPLETED").count()
-    pending_cases = Case.query.filter_by(status="PENDING").count()
-
-    return render_template(
-        "admin_dashboard.html",
-        active="admin_dashboard",
-        name=session.get("user_name"),
-        total_users=total_users,
-        total_cases=total_cases,
-        completed_cases=completed_cases,
-        pending_cases=pending_cases,
-    )
-
-
-@app.route("/admin/datasets")
-@admin_required
-def admin_datasets():
-    return render_template("admin_datasets.html", active="admin_datasets", name=session.get("user_name"))
-
-# ------------------------
-# ADMIN - USERS CRUD
-# ------------------------
-
-@app.route("/admin/users")
-@admin_required
-def admin_users():
-    q = request.args.get("q", "").strip()
-    role = request.args.get("role", "ALL").strip().upper()
-
-    query = User.query
-
-    if role != "ALL":
-        query = query.filter(User.role == role)
-
-    if q:
-        query = query.filter(
-            (User.name.ilike(f"%{q}%")) | (User.email.ilike(f"%{q}%"))
-        )
-
-    users = query.order_by(User.id.desc()).all()
-
-    return render_template(
-        "admin_users.html",
-        active="admin_users",
-        name=session.get("user_name"),
-        users=users,
-        q=q,
-        role=role
-    )
-
-
-@app.route("/admin/users/create", methods=["POST"])
-@admin_required
-def admin_create_user():
-    name = request.form.get("name", "").strip()
-    email = request.form.get("email", "").strip().lower()
-    password = request.form.get("password", "")
-    role = request.form.get("role", "DOCTOR").strip().upper()
-
-    if not name or not email or not password:
-        flash("Name, email, and password are required.", "error")
-        return redirect(url_for("admin_users"))
-
-    if role not in ["DOCTOR", "ADMIN"]:
-        role = "DOCTOR"
-
-    exists = User.query.filter_by(email=email).first()
-    if exists:
-        flash("Email already exists.", "error")
-        return redirect(url_for("admin_users"))
-
-    u = User(
-        name=name,
-        email=email,
-        password_hash=generate_password_hash(password),
-        role=role
-    )
-    db.session.add(u)
-    db.session.commit()
-
-    flash("User created successfully.", "success")
-    return redirect(url_for("admin_users"))
-
-
-@app.route("/admin/users/<int:user_id>/update", methods=["POST"])
-@admin_required
-def admin_update_user(user_id):
-    u = User.query.get_or_404(user_id)
-
-    name = request.form.get("name", "").strip()
-    email = request.form.get("email", "").strip().lower()
-    role = request.form.get("role", u.role).strip().upper()
-    new_password = request.form.get("new_password", "").strip()
-
-    if not name or not email:
-        flash("Name and email are required.", "error")
-        return redirect(url_for("admin_users"))
-
-    # avoid duplicate email
-    email_owner = User.query.filter_by(email=email).first()
-    if email_owner and email_owner.id != u.id:
-        flash("Email already used by another account.", "error")
-        return redirect(url_for("admin_users"))
-
-    if role not in ["DOCTOR", "ADMIN"]:
-        role = "DOCTOR"
-
-    u.name = name
-    u.email = email
-    u.role = role
-
-    if new_password:
-        if len(new_password) < 6:
-            flash("New password must be at least 6 characters.", "error")
-            return redirect(url_for("admin_users"))
-        u.password_hash = generate_password_hash(new_password)
-
-    db.session.commit()
-    flash("User updated.", "success")
-    return redirect(url_for("admin_users"))
-
-
-@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
-@admin_required
-def admin_delete_user(user_id):
-    u = User.query.get_or_404(user_id)
-
-    # Safety: prevent deleting yourself
-    if u.id == session.get("user_id"):
-        flash("You cannot delete your own account.", "error")
-        return redirect(url_for("admin_users"))
-
-    db.session.delete(u)
-    db.session.commit()
-
-    flash("User deleted.", "success")
-    return redirect(url_for("admin_users"))
-
-
-# ------------------------
-# ADMIN - PATIENTS CRUD
-# ------------------------
-
-@app.route("/admin/patients")
-@admin_required
-def admin_patients():
-    q = request.args.get("q", "").strip()
-
-    query = Patient.query
-
-    if q:
-        # Search by patient code or doctor id (if numeric)
-        if q.isdigit():
-            query = query.filter(Patient.doctor_id == int(q))
-        else:
-            query = query.filter(Patient.patient_code.ilike(f"%{q}%"))
-
-    patients = query.order_by(Patient.created_at.desc()).all()
-
-    # doctor lookup (so admin sees doctor name/email)
-    doctor_ids = list({p.doctor_id for p in patients})
-    doctors = User.query.filter(User.id.in_(doctor_ids)).all() if doctor_ids else []
-    doctor_map = {d.id: d for d in doctors}
-
-    return render_template(
-        "admin_patients.html",
-        active="admin_patients",
-        name=session.get("user_name"),
-        patients=patients,
-        q=q,
-        doctor_map=doctor_map
-    )
-
-
-@app.route("/admin/patients/create", methods=["POST"])
-@admin_required
-def admin_create_patient():
-    doctor_id = request.form.get("doctor_id", "").strip()
-    patient_code = request.form.get("patient_code", "").strip()
-    age = request.form.get("age", "").strip()
-    gender = request.form.get("gender", "").strip()
-
-    # basic validation
-    if not doctor_id.isdigit():
-        flash("Doctor ID must be a number.", "error")
-        return redirect(url_for("admin_patients"))
-
-    if not patient_code:
-        flash("Patient code is required.", "error")
-        return redirect(url_for("admin_patients"))
-
-    # ensure doctor exists
-    doctor = User.query.get(int(doctor_id))
-    if not doctor:
-        flash("Doctor not found.", "error")
-        return redirect(url_for("admin_patients"))
-
-    # convert age
-    age_val = None
-    if age:
-        if not age.isdigit():
-            flash("Age must be a number.", "error")
-            return redirect(url_for("admin_patients"))
-        age_val = int(age)
-
-    # create
-    p = Patient(
-        doctor_id=int(doctor_id),
-        patient_code=patient_code,
-        age=age_val,
-        gender=gender if gender else None
-    )
-    db.session.add(p)
-    db.session.commit()
-
-    flash("Patient created.", "success")
-    return redirect(url_for("admin_patients"))
-
-
-@app.route("/admin/patients/<int:patient_id>/update", methods=["POST"])
-@admin_required
-def admin_update_patient(patient_id):
-    p = Patient.query.get_or_404(patient_id)
-
-    patient_code = request.form.get("patient_code", "").strip()
-    age = request.form.get("age", "").strip()
-    gender = request.form.get("gender", "").strip()
-
-    if not patient_code:
-        flash("Patient code is required.", "error")
-        return redirect(url_for("admin_patients"))
-
-    age_val = None
-    if age:
-        if not age.isdigit():
-            flash("Age must be a number.", "error")
-            return redirect(url_for("admin_patients"))
-        age_val = int(age)
-
-    p.patient_code = patient_code
-    p.age = age_val
-    p.gender = gender if gender else None
-
-    db.session.commit()
-    flash("Patient updated.", "success")
-    return redirect(url_for("admin_patients"))
-
-@app.route("/about")
-@login_required
-def about():
-    return render_template("about.html", name=session.get("user_name"), active="about")
-
-
-@app.route("/contact", methods=["GET", "POST"])
-@login_required
-def contact():
-    if request.method == "POST":
-        # simple validation (you can later store in DB or send email)
-        name = request.form.get("name","").strip()
-        email = request.form.get("email","").strip()
-        subject = request.form.get("subject","").strip()
-        message = request.form.get("message","").strip()
-
-        if not name or not email or not subject or not message:
-            flash("Please fill all fields.", "error")
-            return redirect(url_for("contact"))
-
-        flash("Message sent successfully. Thank you!", "success")
-        return redirect(url_for("contact"))
-
-    return render_template("contact.html", name=session.get("user_name"), active="contact")
-
-
-@app.route("/admin/patients/<int:patient_id>/delete", methods=["POST"])
-@admin_required
-def admin_delete_patient(patient_id):
-    p = Patient.query.get_or_404(patient_id)
-
-    db.session.delete(p)
-    db.session.commit()
-
-    flash("Patient deleted.", "success")
-    return redirect(url_for("admin_patients"))
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+        # no quick-add → must choose an existing patient
+        if not patient_id:
+            flash("Please select a patient (or add a new one).", "error")
+            return redirect(url_for("new_analysis"))
+
+        patient = Patient.query.filter_by(
+            id=patient_id,
+            doctor_id=session["user_id"]
+        ).first()
+
+        if not patient:
+            flash("Selected patient not found.",
