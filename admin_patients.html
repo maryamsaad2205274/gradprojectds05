@@ -84,77 +84,65 @@
   </div>
 
   <!-- Header -->
-  <div class="admin-grid admin-grid--head">
+  <div class="ap-grid ap-grid--head">
     <div>ID</div>
     <div>Patient Code</div>
+    <div>Name</div>
     <div>Age</div>
     <div>Gender</div>
     <div>Doctor</div>
-    <div class="admin-grid__actions">Actions</div>
+    <div class="t-right">Actions</div>
   </div>
 
   <!-- Rows -->
   {% for p in patients %}
-    <div class="admin-grid admin-grid--row">
-      <div class="t-muted">{{ p.id }}</div>
+  <div class="ap-grid ap-grid--row">
 
-      <!-- Update form -->
-<form class="admin-grid__form" method="POST"
-      action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
+    <div class="t-muted">{{ p.id }}</div>
 
-  <input class="input input--sm admin-input"
-         type="text"
-         name="patient_code"
-         value="{{ p.patient_code }}"
-         required>
+    <form class="ap-form" method="POST"
+          action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
 
-  <input class="input input--sm admin-input"
-         type="text"
-         name="name"
-         value="{{ p.name or '' }}"
-         placeholder="Patient Name"
-         required>
+      <input class="input input--sm" type="text" name="patient_code"
+             value="{{ p.patient_code }}" required>
 
-  <input class="input input--sm admin-input"
-         type="number"
-         name="age"
-         value="{{ p.age if p.age is not none else '' }}"
-         min="1" max="119" step="1"
-         placeholder="—">
+      <input class="input input--sm" type="text" name="name"
+             value="{{ p.name or '' }}" required>
 
-  <select class="input input--sm admin-input" name="gender">
-    <option value="" {% if not p.gender %}selected{% endif %}>—</option>
-    <option value="MALE" {% if (p.gender or '')|upper == 'MALE' %}selected{% endif %}>Male</option>
-    <option value="FEMALE" {% if (p.gender or '')|upper == 'FEMALE' %}selected{% endif %}>Female</option>
-  </select>
+      <input class="input input--sm" type="number" name="age"
+             value="{{ p.age if p.age is not none else '' }}"
+             min="1" max="119" step="1" placeholder="—">
 
-  <div class="admin-doctor">
-    {% if p.doctor %}
-      <div class="admin-doctor__name">{{ p.doctor.name }}</div>
-      <div class="admin-doctor__meta">{{ p.doctor.email }}</div>
-      <div class="admin-doctor__meta">id={{ p.doctor.id }}</div>
-    {% else %}
-      <div class="admin-doctor__meta">—</div>
-    {% endif %}
-  </div>
+      <select class="input input--sm" name="gender">
+        <option value="" {% if not p.gender %}selected{% endif %}>—</option>
+        <option value="MALE" {% if (p.gender or '')|upper == 'MALE' %}selected{% endif %}>Male</option>
+        <option value="FEMALE" {% if (p.gender or '')|upper == 'FEMALE' %}selected{% endif %}>Female</option>
+      </select>
 
-  <div class="admin-actions">
-    <button class="btn btn--primary btn--sm" type="submit">Save</button>
-  </div>
+      <div class="ap-doctor">
+        {% if p.doctor %}
+          <div class="ap-doctor__name">{{ p.doctor.name }}</div>
+          <div class="ap-doctor__meta">{{ p.doctor.email }} • id={{ p.doctor.id }}</div>
+        {% else %}
+          <div class="ap-doctor__meta">—</div>
+        {% endif %}
+      </div>
 
-</form>
+      <div class="ap-actions">
+        <button class="btn btn--primary btn--sm" type="submit">Save</button>
+    </form>
 
-      <!-- Delete form -->
-      <div class="admin-actions">
         <form method="POST" action="{{ url_for('admin_delete_patient', patient_id=p.id) }}">
           <button class="btn btn--danger btn--sm" type="submit">Delete</button>
         </form>
       </div>
 
-    </div>
+  </div>
   {% endfor %}
 </div>
+
 
 </div>
 
 {% endblock %}
+
