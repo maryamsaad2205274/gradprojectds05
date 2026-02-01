@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}About Us{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">About DentalLandmark</h1>
+    <p class="dash-sub">AI-powered orthodontic soft-tissue analysis for dentists.</p>
+  </div>
+</div>
+
+<div class="about-grid">
+
+  <div class="panel about-hero">
+    <div class="about-hero__text">
+      <h2 class="panel__title">Smarter facial landmark detection</h2>
+      <p class="panel__sub">
+        DentalLandmark is a web application that helps dental professionals automatically detect
+        predefined soft-tissue facial landmarks from frontal and lateral patient images.
+      </p>
+
+      <div class="about-badges">
+        <span class="chip">Frontal + Side</span>
+        <span class="chip">Landmark Overlay</span>
+        <span class="chip">Case History</span>
+        <span class="chip">PDF Reports</span>
+      </div>
+    </div>
+
+    <!-- Optional: image on the right -->
+    <div class="about-hero__img">
+      <img src="{{ url_for('static', filename='img/aboutus.png') }}" alt="DentalLandmark overview">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Our Mission</h2>
+        <p class="panel__sub">Improve accuracy and reduce manual effort in orthodontic analysis.</p>
+      </div>
+    </div>
+
+    <ul class="about-list">
+      <li>Faster landmark detection for clinical workflows</li>
+      <li>More consistent analysis compared to manual marking</li>
+      <li>Clear results with editable landmarks when needed</li>
+      <li>Secure patient/case organization and reporting</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">What the system provides</h2>
+        <p class="panel__sub">Core features available in the platform.</p>
+      </div>
+    </div>
+
+    <div class="about-cards">
+      <div class="mini">
+        <div class="mini__title">Landmark Detection</div>
+        <div class="mini__sub">Predict landmarks from uploaded images.</div>
+      </div>
+      <div class="mini">
+        <div class="mini__title">Overlay Output</div>
+        <div class="mini__sub">Visualized points on the image.</div>
+      </div>
+      <div class="mini">
+        <div class="mini__title">Patient Management</div>
+        <div class="mini__sub">Store patients and their cases.</div>
+      </div>
+      <div class="mini">
+        <div class="mini__title">Reports</div>
+        <div class="mini__sub">Download PDF summaries per case.</div>
+      </div>
+    </div>
+  </div>
+
+  
+
+   
+  </div>
+
+</div>
+
+{% endblock %}
