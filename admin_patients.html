@@ -102,7 +102,13 @@
       <form class="admin-grid__form" method="POST"
             action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
         <input class="input input--sm admin-input" type="text" name="patient_code" value="{{ p.patient_code }}" required>
-        <input class="input" type="text" name="name" placeholder="Patient Name" required>
+        <input class="input input--sm admin-input"
+       type="text"
+       name="name"
+       value="{{ p.name or '' }}"
+       placeholder="Patient Name"
+       required>
+
         <input class="input input--sm admin-input" type="number" name="age"
        value="{{ p.age if p.age is not none else '' }}"
        min="1" max="119" step="1" placeholder="—">
