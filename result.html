@@ -1,115 +1,317 @@
 {% extends "base.html" %}
-{% block title %}Case #{{ case.id }}{% endblock %}
+{% block title %}Analysis — Case #{{ case.id }} — DentAlign{% endblock %}
+{% block crumb %}Analysis{% endblock %}
 
 {% block content %}
 
-<div class="case-head">
-  <div>
-    <h1 class="case-title">Case #{{ case.id }}</h1>
-    <p class="case-sub">
-      {% if case.patient_code %}<b>Patient:</b> {{ case.patient_code }} • {% endif %}
-      <b>Status:</b>
-      <span class="badge {% if case.status=='COMPLETED' %}badge--ok{% elif case.status=='PENDING' %}badge--warn{% else %}badge--bad{% endif %}">
-        {{ case.status }}
-      </span>
-      <span class="case-dot">•</span>
-      <span class="case-muted">{{ case.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+<div class="analysis-header">
+  <div class="analysis-header__top">
+    <div>
+      <span class="analysis-meta-badge">✓ {{ status_label }}</span>
+      <h1 class="analysis-patient-name">
+        {% if patient %}{{ patient.name }}{% else %}Case #{{ case.id }}{% endif %}
+        {% if patient %}<span style="font-weight:500;color:var(--muted-foreground);font-size:1.25rem;"> · {{ patient.patient_code }}</span>{% endif %}
+      </h1>
+      <p class="analysis-patient-sub">
+        {{ type_line }}{% if age_line %} · {{ age_line }}{% endif %}{% if gender_line %} · {{ gender_line }}{% endif %}
+        · Case date {{ case.display_case_date.strftime('%b %d, %Y') }}
+      </p>
+    </div>
+    <div class="analysis-actions">
+      <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">← Cases</a>
+      {% if case.status not in ['NEEDS_REUPLOAD', 'FAILED'] %}
+      <a class="btn btn--primary btn--small" href="{{ url_for('download_report', case_id=case.id) }}">↓ Download report</a>
+      {% endif %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('review_case', case_id=case.id) }}">Review / comments</a>
+    </div>
+  </div>
+</div>
+
+{% if patient %}
+<div class="patient-mini-card" style="margin-bottom:24px;">
+  <div class="patient-mini-card__head">
+    <h3 class="patient-mini-card__title"><span class="patient-mini-card__title-icon">📅</span> Schedule next visit</h3>
+  </div>
+    <p class="patient-mini-card__sub">Schedule the next check-up for this case. The patient will see it on their portal.</p>
+    {% if next_appt %}
+    <p style="font-size:0.8rem;color:var(--muted-foreground);margin:0 0 12px;">
+      Current: {{ next_appt.appointment_date.strftime('%b %d, %Y') }} at {{ next_appt.appointment_time.strftime('%I:%M %p') }}
+      ({{ next_appt.status|lower }})
     </p>
-  </div>
-
-  <div class="case-actions">
-    <a class="btn btn--ghost" href="{{ url_for('history') }}">Back to Cases</a>
-    <a class="btn btn--primary" href="{{ url_for('download_report', case_id=case.id) }}">Download Report (PDF)</a>
-    <button class="btn btn--ghost" type="button" onclick="openEditor('FRONT')">Adjust Front</button>
-<button class="btn btn--ghost" type="button" onclick="openEditor('SIDE')">Adjust Side</button>
-
-
-  </div>
-</div>
-
-<div class="case-grid">
-
-  <!-- FRONT -->
-  <div class="panel">
-    <div class="panel__head">
-      <div>
-        <h2 class="panel__title">Front View Result</h2>
-        <p class="panel__sub">Overlay + landmark coordinates</p>
+    {% endif %}
+    <form method="POST" action="{{ url_for('add_appointment') }}">
+      <input type="hidden" name="redirect_to" value="result">
+      <input type="hidden" name="case_id" value="{{ case.id }}">
+      <input type="hidden" name="patient_id" value="{{ patient.id }}">
+    <div class="lov-form-grid" style="margin-bottom:10px;">
+      <div class="lov-field">
+        <label>Appointment date</label>
+        <input class="input" type="date" name="appointment_date" value="{{ next_appt.appointment_date.isoformat() if next_appt else today_iso }}" required>
+      </div>
+      <div class="lov-field">
+        <label>Time</label>
+        <input class="input" type="time" name="appointment_time" value="{{ next_appt.appointment_time.strftime('%H:%M') if next_appt else '14:30' }}" required>
       </div>
     </div>
+    <div class="lov-field" style="margin-bottom:10px;">
+      <label>Reason for visit</label>
+      <input class="input" type="text" name="reason" value="{{ next_appt.reason if next_appt else '' }}" required placeholder="e.g. Bracket adjustment, 12-week review">
+    </div>
+    <div class="lov-field" style="margin-bottom:10px;">
+      <label>Notes (optional)</label>
+      <textarea class="input" name="notes" rows="2" placeholder="Chair time, elastics check, etc.">{{ next_appt.notes if next_appt and next_appt.notes else '' }}</textarea>
+    </div>
+    <button type="submit" class="btn btn--primary btn--small">Save appointment</button>
+  </form>
+</div>
 
-    {% if front_overlay %}
-      <div class="imgwrap">
-        <img class="result-img" src="{{ front_overlay }}" alt="Front overlay">
-      </div>
-    {% else %}
-      <div class="empty">
-        <div class="empty__title">No front result</div>
-        <div class="empty__text">Front overlay not available.</div>
-      </div>
-    {% endif %}
-
-    {% if front_points and front_points|length > 0 %}
-      <div class="coords">
-        <div class="coords__head">Coordinates (Front)</div>
-        <div class="coords__table">
-          <div class="coords__row coords__row--head">
-            <div>ID</div><div>X</div><div>Y</div>
-          </div>
-
-          {% for p in front_points[:17] %}
-            <div class="coords__row">
-              <div class="t-strong">{{ loop.index }}</div>
-              <div class="t-muted">{{ p[0] }}</div>
-              <div class="t-muted">{{ p[1] }}</div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
+<div class="patient-mini-card" style="margin-bottom:24px;">
+  <div class="patient-mini-card__head">
+    <h3 class="patient-mini-card__title">📝 My private notes</h3>
+    <span class="patient-privacy-badge">🔒 Only you can see this</span>
   </div>
+  <p class="patient-mini-card__sub">Personal reminders about this patient. Never shared with the patient or included in reports.</p>
+  <form method="POST" action="{{ url_for('save_patient_notes', patient_id=patient.id) }}">
+    <input type="hidden" name="redirect_to" value="result">
+    <input type="hidden" name="case_id" value="{{ case.id }}">
+    <textarea class="patient-notes-textarea" name="private_notes">{{ patient.private_notes or '' }}</textarea>
+    <div class="patient-notes-footer">
+      <span class="patient-notes-status">
+        {% if patient.private_notes_updated_at %}Saved · {{ patient.private_notes_updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}Not saved yet{% endif %}
+      </span>
+      <button type="submit" class="btn btn--ghost btn--small">💾 Save notes</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 
+<div class="lov-tabs" role="tablist">
+  <button type="button" class="lov-tab is-active" data-tab="visual">Visual analysis</button>
+  <button type="button" class="lov-tab" data-tab="measurements">Measurements</button>
+  <button type="button" class="lov-tab" data-tab="ai">AI insights</button>
+</div>
+
+<div class="analysis-tools-row" id="tab-tools-visual">
+  {% if side_overlay %}
+  <button class="btn btn--ghost btn--small" type="button" onclick="openEditor('SIDE')">Adjust side landmarks</button>
+  {% endif %}
+  {% if front_ns_overlay %}
+  <button class="btn btn--ghost btn--small" type="button" onclick="openEditor('FRONT_NS')">Adjust frontal landmarks</button>
+  {% endif %}
+  {% if side_overlay %}
+  <div class="measurements-dropdown" style="display:inline-block;">
+    <button class="measurements-btn btn btn--ghost btn--small" type="button" onclick="toggleMeasurementsMenu()">Measurements ▾</button>
+    <div id="measurementsMenu" class="measurements-dropdown-content">
+      <a href="{{ url_for('view_measurement', case_id=case.id, measurement_type='nasiolabial') }}">Nasiolabial Angle</a>
+      <a href="{{ url_for('view_measurement', case_id=case.id, measurement_type='profile_convexity') }}">Profile Convexity Angle</a>
+      <a href="{{ url_for('view_measurement', case_id=case.id, measurement_type='total_facial_convexity') }}">Total Facial Convexity</a>
+      <a href="{{ url_for('view_measurement', case_id=case.id, measurement_type='mentolabial') }}">Mentolabial Angle</a>
+      <a href="{{ url_for('view_all_measurements', case_id=case.id) }}">Full Angles Analysis</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div id="tab-panel-visual" class="tab-panel is-active">
+
+{% if case.status == 'NEEDS_REUPLOAD' or case.status == 'FAILED' %}
+<div class="case-alert case-alert--warn">
+  {{ case.failure_message or friendly_fail }}
+</div>
+{% endif %}
+
+{% if view_summary and view_summary|length > 0 %}
+<div class="case-view-summary panel">
+  <div class="case-view-summary__title">Photo analysis status</div>
+  <div class="case-view-summary__grid">
+    {% for v in view_summary %}
+      <div class="case-view-chip case-view-chip--{{ v.status }}">
+        <span class="case-view-chip__label">{{ v.label }}</span>
+        <span class="case-view-chip__status">{{ v.status_label }}</span>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% set show_side = side_overlay %}
+{% set show_front = front_ns_overlay %}
+
+<div class="case-grid {% if show_side and show_front %}case-grid--compare{% else %}case-grid--single-result{% endif %}">
+
+  {% if side_upload_url and not show_side %}
+  <div class="panel panel--failed-upload">
+    <h2 class="panel__title">Side view photo</h2>
+    <p class="panel__sub">Uploaded but could not be analyzed.</p>
+    <div class="imgwrap"><img class="result-img" src="{{ side_upload_url }}" alt="Uploaded side photo"></div>
+    <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
+  </div>
+  {% endif %}
+
+  {% if front_upload_url and not show_front %}
+  <div class="panel panel--failed-upload">
+    <h2 class="panel__title">Frontal non-smile photo</h2>
+    <p class="panel__sub">Uploaded but could not be analyzed.</p>
+    <div class="imgwrap"><img class="result-img" src="{{ front_upload_url }}" alt="Uploaded frontal photo"></div>
+    <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
+  </div>
+  {% endif %}
+
+  {% if show_side %}
   <!-- SIDE -->
-  <div class="panel">
+  <div class="panel panel--analysis">
     <div class="panel__head">
       <div>
-        <h2 class="panel__title">Side View Result</h2>
-        <p class="panel__sub">Overlay + landmark coordinates</p>
+        <h2 class="panel__title">Side view analysis</h2>
+        <p class="panel__sub">Landmark overlay, cephalometric-style angles, and calibration</p>
       </div>
     </div>
 
-    {% if side_overlay %}
-      <div class="imgwrap">
-        <img class="result-img" src="{{ side_overlay }}" alt="Side overlay">
-      </div>
-    {% else %}
-      <div class="empty">
-        <div class="empty__title">No side result</div>
-        <div class="empty__text">Side overlay not available.</div>
-      </div>
-    {% endif %}
+      <div id="sideMeasurementViewer" class="measurement-viewer">
+        <div class="imgwrap imgwrap--meas">
+          <img class="result-img" data-measure-image src="{{ url_for('static', filename=side_overlay) }}" alt="Side overlay">
+          <canvas class="meas-canvas" data-measure-canvas></canvas>
+        </div>
 
-    {% if side_points and side_points|length > 0 %}
-      <div class="coords">
-        <div class="coords__head">Coordinates (Side)</div>
-        <div class="coords__table">
-          <div class="coords__row coords__row--head">
-            <div>ID</div><div>X</div><div>Y</div>
+        <div class="measurement-tools">
+          <div class="measurement-tools__row">
+            <label class="front-measure-label" for="sideMeasurementSelect">Measurement</label>
+            <select id="sideMeasurementSelect" class="front-measure-select" data-measure-select></select>
           </div>
 
-          {% for p in side_points[:17] %}
-            <div class="coords__row">
-              <div class="t-strong">{{ loop.index }}</div>
-              <div class="t-muted">{{ p[0] }}</div>
-              <div class="t-muted">{{ p[1] }}</div>
-            </div>
-          {% endfor %}
+          <div class="measurement-tools__row">
+            <label class="front-measure-label" for="sideRealDistance">Calibration distance (mm)</label>
+            <input id="sideRealDistance" class="measurement-input" type="number" min="0.01" step="0.01" placeholder="e.g. 10" data-real-distance>
+            <button class="btn btn--ghost measurement-btn" type="button" data-calibrate-button>Start Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-save-calibration>Save Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-measure-button>Measure Distance</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-calibration>Reset Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-measurement>Reset Measurement</button>
+          </div>
+
+          <div class="measurement-scale">
+            <span data-scale-text>No calibration yet</span>
+            <span data-calibration-status>Click "Start Calibration"</span>
+          </div>
+
+          <div class="measurement-card" data-measure-card></div>
         </div>
+      </div>
+  </div>
+  {% endif %}
+
+  {% if show_front %}
+  <!-- FRONTAL NON-SMILE -->
+  <div class="panel panel--analysis">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Frontal non-smile analysis</h2>
+        <p class="panel__sub">Landmark overlay, proportional measures, and calibration</p>
+      </div>
+    </div>
+
+      <div id="frontNsMeasurementViewer" class="measurement-viewer">
+        <div class="imgwrap imgwrap--meas">
+          <img class="result-img" data-measure-image src="{{ url_for('static', filename=front_ns_overlay) }}" alt="Frontal non-smile overlay">
+          <canvas class="meas-canvas" data-measure-canvas></canvas>
+        </div>
+
+          <div class="measurement-tools">
+            <div class="measurement-tools__row">
+              <label class="front-measure-label" for="frontMeasurementSelect">Measurement</label>
+              <select id="frontMeasurementSelect" class="front-measure-select" data-measure-select></select>
+            </div>
+
+            <div class="measurement-tools__row">
+              <label class="front-measure-label" for="frontRealDistance">Calibration distance (mm)</label>
+              <input id="frontRealDistance" class="measurement-input" type="number" min="0.01" step="0.01" placeholder="e.g. 10" data-real-distance>
+              <button class="btn btn--ghost measurement-btn" type="button" data-calibrate-button>Start Calibration</button>
+              <button class="btn btn--ghost measurement-btn" type="button" data-save-calibration>Save Calibration</button>
+              <button class="btn btn--ghost measurement-btn" type="button" data-measure-button>Measure Distance</button>
+              <button class="btn btn--ghost measurement-btn" type="button" data-reset-calibration>Reset Calibration</button>
+              <button class="btn btn--ghost measurement-btn" type="button" data-reset-measurement>Reset Measurement</button>
+            </div>
+
+            <div class="measurement-scale">
+              <span data-scale-text>No calibration yet</span>
+              <span data-calibration-status>Click "Start Calibration"</span>
+            </div>
+
+            <div class="measurement-card" data-measure-card></div>
+          </div>
+      </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% if not show_side and not show_front %}
+<div class="empty empty--case">
+  <div class="empty__title">No analysis images</div>
+  <div class="empty__text">This case has no side or frontal results yet.</div>
+</div>
+{% endif %}
+</div>
+
+<div id="tab-panel-measurements" class="tab-panel">
+  <div class="lov-card">
+    <h3 class="lov-card__title">Measurement tools</h3>
+    <p class="lov-card__sub">Interactive calibration and angle tools are on the Visual analysis tab. Dedicated measurement pages:</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+      {% if side_overlay %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('view_all_measurements', case_id=case.id) }}">Full side angles</a>
+      <a class="btn btn--ghost btn--small" href="{{ url_for('view_measurement', case_id=case.id, measurement_type='nasiolabial') }}">Nasiolabial</a>
+      <a class="btn btn--ghost btn--small" href="{{ url_for('view_measurement', case_id=case.id, measurement_type='profile_convexity') }}">Profile convexity</a>
+      {% endif %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('calibration') }}">Calibration tool</a>
+    </div>
+  </div>
+</div>
+
+<div id="tab-panel-ai" class="tab-panel">
+  <div class="lov-card">
+    <h3 class="lov-card__title">✨ Treatment insights</h3>
+    <p class="lov-card__sub">Based on detected landmarks and measurements from this case.</p>
+    {% if front_ns_measurements %}
+      <p style="margin-top:12px;font-size:0.875rem;">Frontal measurements were computed from the non-smile view. Open <strong>Visual analysis</strong> for proportional measures and calibration.</p>
+    {% elif side_overlay %}
+      <p style="margin-top:12px;font-size:0.875rem;">Side-view cephalometric angles are available via the measurement viewer on the Visual analysis tab.</p>
+    {% else %}
+      <p style="margin-top:12px;font-size:0.875rem;color:var(--muted-foreground);">Run analysis with valid photos to generate AI-assisted measurements.</p>
+    {% endif %}
+    {% if case.doctor_comment %}
+      <div style="margin-top:16px;padding:14px;border-radius:10px;background:var(--muted);">
+        <p style="margin:0 0 6px;font-size:0.75rem;font-weight:600;">Doctor review</p>
+        <p style="margin:0;font-size:0.875rem;">{{ case.doctor_comment }}</p>
       </div>
     {% endif %}
   </div>
-
 </div>
+
+<script>
+function toggleMeasurementsMenu() {
+  document.getElementById("measurementsMenu")?.classList.toggle("show");
+}
+window.addEventListener("click", function(e) {
+  const btn = document.querySelector(".measurements-btn");
+  const menu = document.getElementById("measurementsMenu");
+  if (btn && menu && !btn.contains(e.target) && !menu.contains(e.target)) {
+    menu.classList.remove("show");
+  }
+});
+document.querySelectorAll(".lov-tab").forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    document.querySelectorAll(".lov-tab").forEach(function (t) { t.classList.remove("is-active"); });
+    document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("is-active"); });
+    tab.classList.add("is-active");
+    var panel = document.getElementById("tab-panel-" + tab.dataset.tab);
+    if (panel) panel.classList.add("is-active");
+    var tools = document.getElementById("tab-tools-visual");
+    if (tools) tools.style.display = tab.dataset.tab === "visual" ? "flex" : "none";
+  });
+});
+</script>
+
 <!-- Landmark Editor Modal -->
 <div id="lmModal" class="lm-modal hidden">
   <div class="lm-card">
@@ -138,13 +340,16 @@
 
 <script>
   // ---- Data from backend ----
-  const FRONT_IMG = {{ (front_original|tojson) }};
-  const SIDE_IMG  = {{ (side_original|tojson) }};
-  const FRONT_PTS = {{ (front_points|tojson) }};
-  const SIDE_PTS  = {{ (side_points|tojson) }};
+  
+  const SIDE_IMG  = {{ side_original | tojson | safe }};
+  const FRONT_NS_IMG = {{ front_ns_original | tojson | safe }};
+  
+  const SIDE_PTS  = {{ side_points | tojson | safe }};
+  const FRONT_NS_PTS = {{ front_ns_points | tojson | safe }};
+  const FRONT_NS_MEASUREMENTS = {{ front_ns_measurements | tojson | safe }};
 
   // ---- State ----
-  let currentView = "FRONT";
+  let currentView = "SIDE";
   let points = [];
   let originalPoints = [];
   let draggingIndex = -1;
@@ -158,101 +363,112 @@
   const viewField = document.getElementById("lmViewType");
   const sub = document.getElementById("lmSub");
 
-  function openEditor(viewType){
+  window.openEditor = function(viewType){
     currentView = viewType;
     viewField.value = viewType;
 
-    const src = (viewType === "FRONT") ? FRONT_IMG : SIDE_IMG;
-    const pts = (viewType === "FRONT") ? FRONT_PTS : SIDE_PTS;
+    let src;
+    let pts;
+    if (viewType === "SIDE") {
+      src = SIDE_IMG;
+      pts = SIDE_PTS;
+      sub.innerText = "Side view: drag points then save.";
+    } else if (viewType === "FRONT_NS") {
+      src = FRONT_NS_IMG;
+      pts = FRONT_NS_PTS;
+      sub.innerText = "Frontal non-smile: drag points then save.";
+    } else {
+      alert("Unknown view type.");
+      return;
+    }
 
     if(!src || !pts || pts.length === 0){
       alert("No image/landmarks found for this view yet.");
       return;
     }
 
-    points = pts.map(p => [Number(p[0]), Number(p[1])]);
-    originalPoints = points.map(p => [p[0], p[1]]);
+    points = pts.map(p => {
+      if (Array.isArray(p)) return [Number(p[0]), Number(p[1])];
+      return [Number(p["x"]), Number(p["y"])];
+    });
 
-    sub.innerText = viewType === "FRONT" ? "Front view: drag points then save." : "Side view: drag points then save.";
+    originalPoints = points.map(p => [p[0], p[1]]);
 
     imgEl.onload = () => {
       fitCanvasToImage();
       draw();
     };
+
     imgEl.src = src;
 
     modal.classList.remove("hidden");
     setTimeout(() => fitCanvasToImage(), 0);
   }
 
-  function closeEditor(){
+  window.closeEditor = function(){
     modal.classList.add("hidden");
     draggingIndex = -1;
   }
 
-  function resetPoints(){
+  window.resetPoints = function(){
     points = originalPoints.map(p => [p[0], p[1]]);
     draw();
   }
 
   function fitCanvasToImage(){
     const rect = imgEl.getBoundingClientRect();
-    const stageRect = stage.getBoundingClientRect();
 
-    // Canvas matches displayed image size
     canvas.width = Math.round(rect.width);
     canvas.height = Math.round(rect.height);
 
-    // Keep canvas aligned on top of image
     canvas.style.width = rect.width + "px";
     canvas.style.height = rect.height + "px";
   }
 
   function imgToCanvas(x, y){
-    // Convert original image coords -> displayed canvas coords
     const sx = canvas.width / imgEl.naturalWidth;
     const sy = canvas.height / imgEl.naturalHeight;
     return [x * sx, y * sy];
   }
 
   function canvasToImg(cx, cy){
-    // Convert displayed canvas coords -> original image coords
     const sx = imgEl.naturalWidth / canvas.width;
     const sy = imgEl.naturalHeight / canvas.height;
     return [cx * sx, cy * sy];
   }
 
   function draw(){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // points
-    for(let i=0;i<points.length;i++){
-      const [x,y] = points[i];
-      const [cx,cy] = imgToCanvas(x,y);
+    for(let i = 0; i < points.length; i++){
+      const [x, y] = points[i];
+      const [cx, cy] = imgToCanvas(x, y);
 
-      // circle
       ctx.beginPath();
-      ctx.arc(cx, cy, 6, 0, Math.PI*2);
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(47,111,237,0.9)";
       ctx.fill();
 
-      // id label
       ctx.font = "12px Arial";
       ctx.fillStyle = "#0f172a";
-      ctx.fillText(String(i+1), cx + 8, cy - 8);
+      ctx.fillText(String(i + 1), cx + 8, cy - 8);
     }
 
-    // update hidden field with latest points
-    ptsField.value = JSON.stringify(points.map(p => [Math.round(p[0]), Math.round(p[1])]));
+    ptsField.value = JSON.stringify(
+      points.map(p => ({
+        x: Math.round(p[0]),
+        y: Math.round(p[1])
+      }))
+    );
   }
 
   function hitTest(mx, my){
-    // find nearest point within radius
-    for(let i=0;i<points.length;i++){
-      const [x,y] = points[i];
-      const [cx,cy] = imgToCanvas(x,y);
-      const dx = mx - cx, dy = my - cy;
-      if(Math.sqrt(dx*dx + dy*dy) <= 10) return i;
+    for(let i = 0; i < points.length; i++){
+      const [x, y] = points[i];
+      const [cx, cy] = imgToCanvas(x, y);
+      const dx = mx - cx;
+      const dy = my - cy;
+      if(Math.sqrt(dx * dx + dy * dy) <= 10) return i;
     }
     return -1;
   }
@@ -261,32 +477,86 @@
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    draggingIndex = hitTest(mx,my);
+    draggingIndex = hitTest(mx, my);
   });
 
-  window.addEventListener("mouseup", () => draggingIndex = -1);
+  window.addEventListener("mouseup", () => {
+    draggingIndex = -1;
+  });
 
   canvas.addEventListener("mousemove", (e) => {
     if(draggingIndex === -1) return;
+
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    const [ix, iy] = canvasToImg(mx,my);
+    const [ix, iy] = canvasToImg(mx, my);
     points[draggingIndex] = [
       Math.max(0, Math.min(imgEl.naturalWidth, ix)),
       Math.max(0, Math.min(imgEl.naturalHeight, iy))
     ];
+
     draw();
   });
 
-  // Keep canvas fitting when window resizes
   window.addEventListener("resize", () => {
     if(!modal.classList.contains("hidden")){
       fitCanvasToImage();
       draw();
     }
   });
+
+</script>
+
+<script src="{{ url_for('static', filename='js/measurement_viewer.js') }}"></script>
+<script>
+  const SIDE_MEASUREMENTS = [
+    { key: "nasiolabial", name: "Nasiolabial Angle", group: "Side View", kind: "angle", anglePoints: [7, 8, 10], segments: [[8, 7], [8, 10]], shortLabels: ["Nasal", "Lip"] },
+    { key: "profile_convexity", name: "Profile Convexity Angle", group: "Side View", kind: "angle", anglePoints: [3, 8, 17], segments: [[8, 3], [8, 17]], shortLabels: ["Profile", "Chin"] },
+    { key: "total_facial_convexity", name: "Total Facial Convexity", group: "Side View", kind: "angle", anglePoints: [3, 5, 17], segments: [[5, 3], [5, 17]], shortLabels: ["Face", "Chin"] },
+    { key: "mentolabial", name: "Mentolabial Angle", group: "Side View", kind: "angle", anglePoints: [15, 16, 17], segments: [[16, 15], [16, 17]], shortLabels: ["Lip", "Chin"] },
+  ];
+
+  const facialWidthPair = FRONT_NS_MEASUREMENTS
+    && FRONT_NS_MEASUREMENTS.horizontal
+    && FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px
+    && FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px.chosen_pair
+      ? FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px.chosen_pair
+      : [1, 28];
+
+  const FRONT_NS_VISUAL_MEASUREMENTS = [
+    { key: "middle_third", name: "Middle Third", group: "Frontal Non-Smile", kind: "distance", segments: [[11, 16]], shortLabel: "Middle Third" },
+    { key: "lower_third", name: "Lower Third", group: "Frontal Non-Smile", kind: "distance", segments: [[16, 24]], shortLabel: "Lower Third" },
+    { key: "upper_to_lower_lip_ratio", name: "Upper lip / Lower lip ratio", group: "Frontal Non-Smile", kind: "ratio", segments: [[18, 21], [21, 23]], shortLabels: ["Upper Lip", "Lower Lip"] },
+    { key: "lip_length_at_rest", name: "Lip Length at Rest", group: "Frontal Non-Smile", kind: "distance", segments: [[16, 21]], shortLabel: "Lip Length" },
+    { key: "interlabial_gap", name: "Interlabial Gap", group: "Frontal Non-Smile", kind: "distance", segments: [[21, 23]], shortLabel: "Lip Gap", note: "Approximate" },
+    { key: "interpupillary_line", name: "Interpupillary line", group: "Frontal Non-Smile", kind: "alignment", segments: [[8, 32]], shortLabel: "Pupillary" },
+    { key: "commissure_line", name: "Commissure line", group: "Frontal Non-Smile", kind: "alignment", segments: [[20, 22]], shortLabel: "Commissure" },
+    { key: "facial_midline", name: "Facial midline", group: "Frontal Non-Smile", kind: "polyline", polyline: [11, 12, 14, 16, 18, 21, 23, 24], shortLabel: "Midline" },
+    { key: "rule_of_fifths", name: "Rule of fifths", group: "Frontal Non-Smile", kind: "guides" },
+    { key: "facial_width", name: "Facial Width", group: "Frontal Non-Smile", kind: "distance", segments: [facialWidthPair], shortLabel: "Facial Width" },
+    { key: "mandibular_width", name: "Mandibular Width", group: "Frontal Non-Smile", kind: "distance", segments: [[3, 26]], shortLabel: "Jaw Width" },
+    { key: "bizygomatic_to_bigonial_ratio", name: "Bizygomatic / Bigonial ratio", group: "Frontal Non-Smile", kind: "ratio", segments: [facialWidthPair, [3, 26]], shortLabels: ["Facial Width", "Jaw Width"] },
+    { key: "facial_index", name: "Facial index", group: "Frontal Non-Smile", kind: "ratio", segments: [[11, 24], facialWidthPair], shortLabels: ["Facial Height", "Facial Width"] },
+  ];
+
+  {% if show_side %}
+  new MeasurementViewer({
+    rootId: "sideMeasurementViewer",
+    points: SIDE_PTS,
+    measurements: SIDE_MEASUREMENTS,
+  });
+  {% endif %}
+
+  {% if show_front %}
+  new MeasurementViewer({
+    rootId: "frontNsMeasurementViewer",
+    points: FRONT_NS_PTS,
+    measurements: FRONT_NS_VISUAL_MEASUREMENTS,
+    measurementResults: FRONT_NS_MEASUREMENTS,
+  });
+  {% endif %}
 </script>
 
 {% endblock %}
