@@ -1,0 +1,50 @@
+doc = Document(DOCX_PATH)
+
+all_text = []
+
+for p in doc.paragraphs:
+    text = p.text.strip()
+    if text:
+        all_text.append(text)
+
+doc_text = "\n".join(all_text)
+
+print("Number of text lines:", len(all_text))
+print("\n--- First 1500 characters ---")
+print(doc_text[:1500])
+
+labels = {}
+
+current_id = None
+
+for paragraph in all_text:
+    lines = paragraph.split("\n")
+
+    for line in lines:
+        line = line.strip()
+
+        # Detect ID like 43:
+        id_match = re.match(r"^(\d+)\s*:$", line)
+        if id_match:
+            current_id = id_match.group(1)
+            labels[current_id] = []
+            continue
+
+        # Detect coordinate like (465,954) or (465, 954)
+        coord_match = re.match(r"^\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?$", line)
+        if coord_match and current_id is not None:
+            x = int(coord_match.group(1))
+            y = int(coord_match.group(2))
+            labels[current_id].append([x, y])
+
+print("Total images parsed:", len(labels))
+
+valid_ids = [k for k, v in labels.items() if len(v) == NUM_LANDMARKS]
+bad_counts = [(k, len(v)) for k, v in labels.items() if len(v) != NUM_LANDMARKS]
+
+print("Images with exactly 20 landmarks:", len(valid_ids))
+print("Bad landmark counts:", bad_counts[:30])
+
+print("\nFirst 5 parsed:")
+for k in list(labels.keys())[:5]:
+    print(k, len(labels[k]), labels[k][:3])

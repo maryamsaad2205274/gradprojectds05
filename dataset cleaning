@@ -1,0 +1,38 @@
+manual_bad_ids = [
+    "51", "52", "53", "54", "55", "56", "57", "58", "59", "60",
+    "61", "62", "63", "64", "65", "80", "89"
+]
+
+final_clean_labels = {
+    img_id: points
+    for img_id, points in clean_labels.items()
+    if img_id not in manual_bad_ids
+}
+
+print("Before manual removal:", len(clean_labels))
+print("Manually removed:", len(manual_bad_ids))
+print("Final clean labels:", len(final_clean_labels))
+
+# clear old JSON files if any
+for f in os.listdir(LABELS_DIR):
+    if f.endswith(".json"):
+        os.remove(os.path.join(LABELS_DIR, f))
+
+saved = 0
+
+for img_id, points in final_clean_labels.items():
+    data = {
+        "image_id": img_id,
+        "landmarks": points
+    }
+
+    json_path = os.path.join(LABELS_DIR, f"{img_id}.json")
+
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    saved += 1
+
+print("Saved final JSON files:", saved)
+print("Folder:", LABELS_DIR)
+
