@@ -1,0 +1,15 @@
+BASE_DIR   = "/content/drive/MyDrive/project120"
+IMAGES_DIR = os.path.join(BASE_DIR, "120image")
+DOCX_PATH  = os.path.join(BASE_DIR, "coordinates120.docx")
+
+LABELS_DIR = os.path.join(BASE_DIR, "json_labels")
+CHECK_DIR  = os.path.join(BASE_DIR, "label_check_images")
+
+os.makedirs(LABELS_DIR, exist_ok=True)
+os.makedirs(CHECK_DIR, exist_ok=True)
+
+NUM_LANDMARKS = 20
+
+print("BASE_DIR exists:", os.path.exists(BASE_DIR))
+print("IMAGES_DIR exists:", os.path.exists(IMAGES_DIR))
+print("DOCX exists:", os.path.exists(DOCX_PATH))
