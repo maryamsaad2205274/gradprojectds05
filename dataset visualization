@@ -1,0 +1,40 @@
+saved = 0
+missing_images = []
+
+for img_id, points in tqdm(clean_labels.items()):
+
+    img_path = find_image_path(img_id)
+
+    if img_path is None:
+        missing_images.append(img_id)
+        continue
+
+    img = cv2.imread(img_path)
+
+    if img is None:
+        missing_images.append(img_id)
+        continue
+
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    vis = draw_landmarks(img_rgb, points)
+
+    save_path = os.path.join(
+        CHECK_DIR,
+        f"{img_id}_check.jpg"
+    )
+
+    vis_bgr = cv2.cvtColor(vis, cv2.COLOR_RGB2BGR)
+
+    cv2.imwrite(save_path, vis_bgr)
+
+    saved += 1
+
+print("Saved visualization images:", saved)
+print("Missing images:", len(missing_images))
+
+if len(missing_images) > 0:
+    print(missing_images[:20])
+
+print("\nSaved folder:")
+print(CHECK_DIR)
