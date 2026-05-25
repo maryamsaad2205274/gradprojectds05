@@ -1,0 +1,49 @@
+bad_count_ids = [k for k, v in labels.items() if len(v) != NUM_LANDMARKS]
+
+clean_labels = {
+    k: v for k, v in labels.items()
+    if len(v) == NUM_LANDMARKS
+}
+
+print("Removed because not 20 points:", bad_count_ids)
+print("Remaining clean labels:", len(clean_labels))
+
+
+def find_image_path(img_id):
+
+    exts = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
+
+    for ext in exts:
+        path = os.path.join(IMAGES_DIR, f"{img_id}{ext}")
+
+        if os.path.exists(path):
+            return path
+
+    return None
+
+
+def draw_landmarks(img, points):
+
+    out = img.copy()
+
+    for idx, (x, y) in enumerate(points, start=1):
+
+        cv2.circle(
+            out,
+            (int(x), int(y)),
+            6,
+            (0, 0, 255),
+            -1
+        )
+
+        cv2.putText(
+            out,
+            str(idx),
+            (int(x) + 8, int(y) - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 0, 0),
+            2
+        )
+
+    return out
