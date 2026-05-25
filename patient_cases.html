@@ -1,126 +1,124 @@
 {% extends "base.html" %}
-{% block title %}Admin | Patients{% endblock %}
+{% block title %}Patient Cases{% endblock %}
 
 {% block content %}
 
-<div class="dash-head">
+<div class="pc-head">
   <div>
-    <h1 class="dash-title">Patients</h1>
-    <p class="dash-sub">View and manage patient records from all doctors.</p>
+    <h1 class="p-title">{{ patient.name }}</h1>
+    <p class="p-sub">Patient code <strong>{{ patient.patient_code }}</strong> — analysis history and photo status.</p>
+    {% if access_code %}
+      <p class="p-sub">Patient portal code: <code class="portal-code-tag">{{ access_code }}</code></p>
+    {% endif %}
+  </div>
+  <div class="dash-quick">
+    <a class="btn btn--ghost" href="{{ url_for('patients') }}">Back to Patients</a>
+    <a class="btn btn--primary" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
   </div>
 </div>
 
-<!-- Search -->
-<div class="panel" style="margin-bottom:12px;">
-  <form method="GET" action="{{ url_for('admin_patients') }}" class="admin-search">
-    <div class="field">
-      <label>Search</label>
-      <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by patient code or doctor_id">
+{% if cases and cases|length > 0 %}
+  <div class="cases-summary">
+    <div class="summary-card">
+      <div class="summary-title">Total Cases</div>
+      <div class="summary-value">{{ cases|length }}</div>
     </div>
-    <div class="p-actions">
-      <button class="btn btn--primary" type="submit">Search</button>
-      <a class="btn btn--ghost" href="{{ url_for('admin_patients') }}">Clear</a>
+    <div class="summary-card">
+      <div class="summary-title">Needs Review</div>
+      <div class="summary-value">
+        {{ cases | selectattr("status", "equalto", "PENDING_REVIEW") | list | length }}
+      </div>
     </div>
-  </form>
-</div>
-
-<!-- Create -->
-<div class="panel" style="margin-bottom:12px;">
-  <div class="panel__head">
-    <div>
-      <h2 class="panel__title">Create Patient</h2>
-      <p class="panel__sub">Admin can create a patient under a doctor.</p>
+    <div class="summary-card">
+      <div class="summary-title">Needs Re-upload</div>
+      <div class="summary-value">
+        {{ cases | selectattr("status", "equalto", "NEEDS_REUPLOAD") | list | length }}
+      </div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Reviewed</div>
+      <div class="summary-value">
+        {{ (cases | selectattr("status", "equalto", "REVIEWED") | list | length) + (cases | selectattr("status", "equalto", "REVIWED") | list | length) }}
+      </div>
     </div>
   </div>
+{% endif %}
 
-  <form method="POST" action="{{ url_for('admin_create_patient') }}">
-    <div class="row2">
-      <div class="field">
-        <label>Doctor ID</label>
-        <input class="input" type="text" name="doctor_id" placeholder="e.g., 5" required>
-      </div>
-
-      <div class="field">
-        <label>Patient Code</label>
-        <input class="input" type="text" name="patient_code" placeholder="e.g., 1001" required>
-      </div>
-    </div>
-
-    <div class="row2">
-      <div class="field">
-        <label>Age (optional)</label>
-        <input class="input" type="text" name="age" placeholder="e.g., 21">
-      </div>
-
-      <div class="field">
-        <label>Gender (optional)</label>
-        <input class="input" type="text" name="gender" placeholder="e.g., Female">
-      </div>
-    </div>
-
-    <div class="p-actions">
-      <button class="btn btn--primary" type="submit">Create</button>
-    </div>
-  </form>
-</div>
-
-<!-- Table -->
 <div class="panel">
-  <div class="panel__head">
-    <div>
-      <h2 class="panel__title">All Patients</h2>
-      <p class="panel__sub">Editable rows.</p>
-    </div>
-  </div>
+  {% if case_summaries and case_summaries|length > 0 %}
 
-  <!-- Header -->
-  <div class="admin-grid admin-grid--head">
-    <div>ID</div>
-    <div>Patient Code</div>
-    <div>Age</div>
-    <div>Gender</div>
-    <div>Doctor</div>
-    <div class="admin-grid__actions">Actions</div>
-  </div>
+    <div class="cases-list">
 
-  <!-- Rows -->
-  {% for p in patients %}
-    <div class="admin-grid admin-grid--row">
-      <div class="t-muted">{{ p.id }}</div>
+      {% for item in case_summaries %}
+        {% set c = item.case %}
+        <div class="case-card {% if c.status == 'PENDING_REVIEW' %}case-card--needs-review{% elif c.status == 'NEEDS_REUPLOAD' %}case-card--reupload{% endif %}">
 
-      <!-- Update form -->
-      <form class="admin-grid__form" method="POST"
-            action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
-        <input class="input input--sm admin-input" type="text" name="patient_code" value="{{ p.patient_code }}" required>
-        <input class="input input--sm admin-input" type="text" name="age" value="{{ p.age or '' }}" placeholder="—">
-        <input class="input input--sm admin-input" type="text" name="gender" value="{{ (p.gender or '')|upper }}" placeholder="—">
+          <div class="case-card__left">
+            <div class="case-id">#{{ c.id }}</div>
+            <div class="case-meta-badges">
+              {% if c.case_type == "INITIAL" %}
+                <span class="badge badge--type-initial">Initial</span>
+              {% elif c.case_type == "FOLLOW_UP" %}
+                <span class="badge badge--type-followup">Follow-up</span>
+              {% endif %}
+            </div>
+          </div>
 
-        <div class="admin-doctor">
-          {% if p.doctor %}
-            <div class="admin-doctor__name">{{ p.doctor.name }}</div>
-            <div class="admin-doctor__meta">{{ p.doctor.email }}</div>
-            <div class="admin-doctor__meta">id={{ p.doctor.id }}</div>
-          {% else %}
-            <div class="admin-doctor__meta">—</div>
-          {% endif %}
+          <div class="case-card__middle">
+            {% if c.status == "PENDING_REVIEW" %}
+              <span class="badge badge--status-pending">Pending review</span>
+            {% elif c.status == "NEEDS_REUPLOAD" %}
+              <span class="badge badge--status-reupload">Needs re-upload</span>
+            {% elif c.status == "REVIEWED" or c.status == "REVIWED" %}
+              <span class="badge badge--status-reviewed">Reviewed</span>
+            {% elif c.status == "FAILED" %}
+              <span class="badge badge--status-failed">Failed</span>
+            {% elif c.status == "PROCESSING" %}
+              <span class="badge badge--status-processing">Processing</span>
+            {% else %}
+              <span class="badge badge--status-default">{{ c.status }}</span>
+            {% endif %}
+
+            {% if item.views %}
+              <div class="case-view-tags">
+                {% for v in item.views %}
+                  <span class="case-view-tag case-view-tag--{{ v.status }}">{{ v.label }}: {{ v.status_label }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% if c.failure_message and c.status in ['NEEDS_REUPLOAD', 'FAILED'] %}
+              <div class="case-note case-note--warn">{{ c.failure_message }}</div>
+            {% elif c.doctor_comment %}
+              <div class="case-note">Doctor comment added</div>
+            {% else %}
+              <div class="case-note case-note--muted">No doctor comment yet</div>
+            {% endif %}
+          </div>
+
+          <div class="case-card__date">
+            <div class="case-date-label">Created</div>
+            <div class="case-date-value">{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+          </div>
+
+          <div class="case-card__actions">
+            <a class="btn btn--ghost btn--small" href="{{ url_for('view_result', case_id=c.id) }}">Open</a>
+            {% if c.status != "REVIEWED" and c.status != "REVIWED" %}
+              <a class="btn btn--primary btn--small" href="{{ url_for('review_case', case_id=c.id) }}">Review</a>
+            {% endif %}
+          </div>
+
         </div>
-
-        <div class="admin-actions">
-          <button class="btn btn--primary btn--sm" type="submit">Save</button>
-        </div>
-      </form>
-
-      <!-- Delete form -->
-      <div class="admin-actions">
-        <form method="POST" action="{{ url_for('admin_delete_patient', patient_id=p.id) }}">
-          <button class="btn btn--danger btn--sm" type="submit">Delete</button>
-        </form>
-      </div>
+      {% endfor %}
 
     </div>
-  {% endfor %}
-</div>
 
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No cases for this patient</div>
+      <div class="empty__text">Run a new analysis to create the first case record.</div>
+    </div>
+  {% endif %}
 </div>
 
 {% endblock %}
