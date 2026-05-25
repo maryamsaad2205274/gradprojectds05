@@ -1,96 +1,353 @@
 {% extends "base.html" %}
-{% block title %}Patients{% endblock %}
+{% block title %}Patients — DentAlign{% endblock %}
+{% block crumb %}Patients{% endblock %}
 
 {% block content %}
 
-<div class="p-head">
+<div class="p-head" style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;">
   <div>
     <h1 class="p-title">Patients</h1>
-    <p class="p-sub">View your patients and their cases.</p>
+    <p class="p-sub">Manage your patient roster and treatment plans.</p>
   </div>
-
-  <form class="p-search" method="GET" action="{{ url_for('patients') }}">
-    <div class="p-search__group">
-      <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search patient code…">
-      <button class="btn btn--primary" type="submit">Search</button>
-    </div>
-  </form>
+  <button type="button" class="btn btn--primary" id="openAddPatientModal">+ Add patient</button>
 </div>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <div class="messages">
-      {% for category, msg in messages %}
-        <div class="msg {{ category }}">{{ msg }}</div>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
-
-<div class="panel">
-  <div class="panel__head p-panel-head">
-    <div>
-      <h2 class="panel__title">Patient List</h2>
-      <p class="panel__sub">All patients linked to your account.</p>
-    </div>
-
-    <div class="p-count">
-      {{ patients|length if patients else 0 }} Patients
-    </div>
+<div class="panel" style="padding:0;">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+    <form method="GET" action="{{ url_for('patients') }}" style="margin:0;flex:1;min-width:200px;">
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted-foreground);font-size:0.85rem;">⌕</span>
+        <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by name or ID…" style="width:100%;padding-left:36px;">
+      </div>
+    </form>
+    <span class="p-count" style="margin:0;">{{ patients|length if patients else 0 }} patients</span>
   </div>
 
   {% if patients and patients|length > 0 %}
-  <div class="p-table">
+  <div class="patients-table-wrap">
+    <table class="patients-table">
+      <thead>
+        <tr>
+          <th>Patient</th>
+          <th>ID</th>
+          <th>Age</th>
+          <th>Gender</th>
+          <th>Latest case</th>
+          <th>Last visit</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in patients %}
+          {% set lc = latest_case_by_patient.get(p.id) %}
+          <tr
+            class="patient-row{% if selected_patient_id == p.id %} is-selected{% endif %}"
+            data-patient-id="{{ p.id }}"
+            data-patient-name="{{ p.name }}"
+            data-patient-code="{{ p.patient_code }}"
+            tabindex="0"
+            role="button"
+            aria-label="Open profile for {{ p.name }}"
+          >
+            <td>
+              <div class="patient-row__name">
+                <div class="da-avatar">
+                  {{ p.name.split()[0][0] if p.name }}{% if p.name and p.name.split()|length > 1 %}{{ p.name.split()[1][0] }}{% endif %}
+                </div>
+                {{ p.name or "-" }}
+              </div>
+            </td>
+            <td style="font-family:monospace;font-size:0.8rem;color:var(--muted-foreground);">{{ p.patient_code }}</td>
+            <td>{{ p.age if p.age is not none else "—" }}</td>
+            <td>{% if p.gender == 'MALE' %}Male{% elif p.gender == 'FEMALE' %}Female{% else %}—{% endif %}</td>
+            <td class="t-muted">
+              {% if lc %}Case #{{ lc.id }}{% else %}—{% endif %}
+            </td>
+            <td class="t-muted">
+              {% if lc %}{{ lc.created_at.strftime("%Y-%m-%d") }}{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if lc %}
+                {% set st = lc.status %}
+                <span class="patient-status-pill {% if st in ['REVIEWED','REVIWED','COMPLETED'] %}patient-status-pill--reviewed{% elif st in ['PENDING_REVIEW','PROCESSING','PENDING'] %}patient-status-pill--pending{% elif st in ['FAILED','NEEDS_REUPLOAD'] %}patient-status-pill--failed{% else %}patient-status-pill--default{% endif %}">
+                  {{ st.replace('_', ' ').title() }}
+                </span>
+              {% else %}
+                <span class="patient-status-pill patient-status-pill--none">No cases</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;color:var(--muted-foreground);">⋯</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p style="padding:12px 20px 16px;margin:0;font-size:0.75rem;color:var(--muted-foreground);">
+    Click a patient row to open portal access code and private notes.
+  </p>
 
-    <div class="p-table__head p-table__head--wide">
-      <div>Code</div>
-      <div>Name</div>
-      <div>Portal access</div>
-      <div>Age</div>
-      <div>Gender</div>
-      <div>Created</div>
-      <div></div>
-    </div>
-
-    {% for p in patients %}
-      <div class="p-table__row p-table__row--wide">
-        <div class="t-strong">{{ p.patient_code }}</div>
-        <div class="t-muted">{{ p.name or "-" }}</div>
-        <div class="t-muted">
-          {% if access_code_by_patient.get(p.id) %}
-            <code class="portal-code-tag">{{ access_code_by_patient[p.id] }}</code>
-          {% else %}
-            <span class="t-muted">Not generated</span>
-          {% endif %}
-        </div>
-        <div class="t-muted">{{ p.age or "-" }}</div>
-        <div class="t-muted">{{ p.gender or "-" }}</div>
-        <div class="t-muted">{{ p.created_at.strftime("%Y-%m-%d") }}</div>
-        <div class="t-right p-table__actions">
-          <a class="btn btn--ghost btn--small"
-             href="{{ url_for('patient_cases', patient_id=p.id) }}">
-            View Cases
-          </a>
-          <form method="POST"
-                action="{{ url_for('generate_patient_code', patient_id=p.id) }}"
-                style="display:inline;">
-              <button class="btn btn--primary btn--small" type="submit">
-                {% if access_code_by_patient.get(p.id) %}Show Code{% else %}Get Access Code{% endif %}
-              </button>
-            </form>
+  {# Hidden detail panels — copied into drawer on row click #}
+  {% for p in patients %}
+    {% set portal_code = access_code_by_patient.get(p.id) %}
+    <div id="patient-detail-source-{{ p.id }}" class="patient-detail-source">
+      <div class="patient-mini-card">
+        <h3 class="patient-mini-card__title">Demographics</h3>
+        <div class="lov-form-grid" style="margin-top:10px;">
+          <div>
+            <p style="margin:0;font-size:0.7rem;color:var(--muted-foreground);">Age</p>
+            <p style="margin:4px 0 0;font-weight:600;">{{ p.age if p.age is not none else '—' }}</p>
+          </div>
+          <div>
+            <p style="margin:0;font-size:0.7rem;color:var(--muted-foreground);">Gender</p>
+            <p style="margin:4px 0 0;font-weight:600;">
+              {% if p.gender == 'MALE' %}Male{% elif p.gender == 'FEMALE' %}Female{% else %}—{% endif %}
+            </p>
+          </div>
         </div>
       </div>
-    {% endfor %}
 
-  </div>
-{% else %}
+      <div class="patient-mini-card">
+        <div class="patient-mini-card__head">
+          <h3 class="patient-mini-card__title">
+            <span class="patient-mini-card__title-icon" aria-hidden="true">🔑</span>
+            Patient portal access code
+          </h3>
+        </div>
+        <p class="patient-mini-card__sub">
+          Share this code with the patient so they can log into their portal to upload photos and view their plan.
+        </p>
+        {% if portal_code %}
+          <div class="patient-code-display">
+            <div
+              class="patient-code-value"
+              id="code-display-{{ p.id }}"
+              data-code="{{ portal_code }}"
+              data-visible="true"
+            >{{ portal_code }}</div>
+            <button type="button" class="patient-code-toggle" data-toggle-code="{{ p.id }}" aria-label="Show or hide code">👁</button>
+          </div>
+          <div class="patient-code-actions">
+            <button type="button" class="btn btn--ghost btn--small" data-copy-code="{{ portal_code }}">⧉ Copy</button>
+            <form method="POST" action="{{ url_for('regenerate_patient_code_route', patient_id=p.id) }}" style="display:inline;">
+              <button type="submit" class="btn btn--ghost btn--small" onclick="return confirm('Generate a new code? The previous code will stop working immediately.');">↻ Regenerate</button>
+            </form>
+            <a class="btn btn--ghost btn--small" href="{{ url_for('patient_portal', code=portal_code) }}" target="_blank" rel="noopener">Open portal</a>
+          </div>
+          <p class="patient-code-footnote">Regenerating immediately invalidates the previous code.</p>
+        {% else %}
+          <div class="patient-code-empty">
+            <p>No portal code yet for this patient.</p>
+            <form method="POST" action="{{ url_for('generate_patient_code', patient_id=p.id) }}">
+              <button type="submit" class="btn btn--primary btn--small">Generate access code</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
 
-    <div class="empty">
+      <div class="patient-mini-card">
+        <div class="patient-mini-card__head">
+          <h3 class="patient-mini-card__title">
+            <span class="patient-mini-card__title-icon" aria-hidden="true">📝</span>
+            My private notes
+          </h3>
+          <span class="patient-privacy-badge">🔒 Only you can see this</span>
+        </div>
+        <p class="patient-mini-card__sub">
+          Personal reminders about this patient. Never shared with the patient or included in reports.
+        </p>
+        <form method="POST" action="{{ url_for('save_patient_notes', patient_id=p.id) }}">
+          <textarea class="patient-notes-textarea" name="private_notes" placeholder="Jot down anything you want to remember…">{{ p.private_notes or '' }}</textarea>
+          <div class="patient-notes-footer">
+            <span class="patient-notes-status">
+              {% if p.private_notes_updated_at %}
+                Saved · {{ p.private_notes_updated_at.strftime("%Y-%m-%d %H:%M") }}
+              {% else %}
+                Not saved yet
+              {% endif %}
+            </span>
+            <button type="submit" class="btn btn--ghost btn--small">💾 Save notes</button>
+          </div>
+        </form>
+      </div>
+
+      <div style="display:flex;flex-wrap:gap:8px;margin-top:4px;">
+        <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}?patient_id={{ p.id }}">New analysis</a>
+        <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=p.id) }}">View cases</a>
+      </div>
+    </div>
+  {% endfor %}
+
+  {% else %}
+    <div class="empty" style="padding:32px;">
       <div class="empty__title">No patients yet</div>
-      <div class="empty__text">Add a patient from New Analysis to start.</div>
-      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+      <div class="empty__text">Add a patient to get started.</div>
+      <button type="button" class="btn btn--primary btn--small" id="openAddPatientModalEmpty">+ Add patient</button>
     </div>
   {% endif %}
 </div>
 
+{# Slide-out drawer #}
+<div class="patient-drawer-backdrop" id="patientDrawerBackdrop" aria-hidden="true"></div>
+<aside class="patient-drawer" id="patientDrawer" aria-hidden="true" aria-labelledby="patientDrawerTitle">
+  <header class="patient-drawer__head">
+    <div>
+      <h2 id="patientDrawerTitle" style="margin:0;font-size:1.15rem;font-weight:700;">Patient profile</h2>
+      <p id="patientDrawerSubtitle" style="margin:4px 0 0;font-size:0.8rem;color:var(--muted-foreground);"></p>
+    </div>
+    <button type="button" class="patient-drawer__close" id="closePatientDrawer" aria-label="Close">×</button>
+  </header>
+  <div class="patient-drawer__body" id="patientDrawerBody"></div>
+</aside>
+
+<div class="da-modal-backdrop" id="addPatientModal">
+  <div class="da-modal">
+    <h3>Add new patient</h3>
+    <form method="POST" action="{{ url_for('doctor_add_patient') }}">
+      <div class="field" style="margin-bottom:12px;">
+        <label for="ap_name">Patient name</label>
+        <input class="input" id="ap_name" type="text" name="name" required placeholder="e.g. Emma Larsen">
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label for="ap_code">Patient code</label>
+        <input class="input" id="ap_code" type="text" name="patient_code" required placeholder="e.g. PT-1043">
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label for="ap_age">Age (optional)</label>
+        <input class="input" id="ap_age" type="number" name="age" min="1" max="119" placeholder="14">
+      </div>
+      <div class="field" style="margin-bottom:16px;">
+        <label for="ap_gender">Gender (optional)</label>
+        <select class="input" id="ap_gender" name="gender">
+          <option value="">—</option>
+          <option value="MALE">Male</option>
+          <option value="FEMALE">Female</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button type="button" class="btn btn--ghost" id="closeAddPatientModal">Cancel</button>
+        <button type="submit" class="btn btn--primary">Save patient</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var drawer = document.getElementById("patientDrawer");
+  var backdrop = document.getElementById("patientDrawerBackdrop");
+  var body = document.getElementById("patientDrawerBody");
+  var titleEl = document.getElementById("patientDrawerTitle");
+  var subtitleEl = document.getElementById("patientDrawerSubtitle");
+  var activeId = null;
+
+  function bindDrawerActions() {
+    body.querySelectorAll("[data-copy-code]").forEach(function (btn) {
+      btn.onclick = function () {
+        var code = btn.getAttribute("data-copy-code");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function () {
+            btn.textContent = "✓ Copied";
+            setTimeout(function () { btn.textContent = "⧉ Copy"; }, 2000);
+          });
+        }
+      };
+    });
+    body.querySelectorAll("[data-toggle-code]").forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.getAttribute("data-toggle-code");
+        var el = body.querySelector("#code-display-" + id);
+        if (!el) return;
+        var code = el.getAttribute("data-code") || "";
+        var visible = el.getAttribute("data-visible") === "true";
+        if (visible) {
+          el.textContent = "••••••••••";
+          el.classList.add("is-hidden");
+          el.setAttribute("data-visible", "false");
+          btn.textContent = "👁‍🗨";
+        } else {
+          el.textContent = code;
+          el.classList.remove("is-hidden");
+          el.setAttribute("data-visible", "true");
+          btn.textContent = "👁";
+        }
+      };
+    });
+  }
+
+  function openPatient(id, name, code) {
+    var source = document.getElementById("patient-detail-source-" + id);
+    if (!source || !drawer) return;
+    activeId = id;
+    body.innerHTML = source.innerHTML;
+    titleEl.textContent = name || "Patient profile";
+    subtitleEl.textContent = code ? "ID: " + code : "";
+    drawer.classList.add("is-open");
+    backdrop.classList.add("is-open");
+    drawer.setAttribute("aria-hidden", "false");
+    document.querySelectorAll(".patient-row").forEach(function (row) {
+      row.classList.toggle("is-selected", row.getAttribute("data-patient-id") === String(id));
+    });
+    bindDrawerActions();
+    if (history.replaceState) {
+      var url = new URL(window.location.href);
+      url.searchParams.set("patient_id", id);
+      history.replaceState({}, "", url);
+    }
+  }
+
+  function closePatient() {
+    if (!drawer) return;
+    drawer.classList.remove("is-open");
+    backdrop.classList.remove("is-open");
+    drawer.setAttribute("aria-hidden", "true");
+    activeId = null;
+    document.querySelectorAll(".patient-row").forEach(function (row) {
+      row.classList.remove("is-selected");
+    });
+    if (history.replaceState) {
+      var url = new URL(window.location.href);
+      url.searchParams.delete("patient_id");
+      history.replaceState({}, "", url);
+    }
+  }
+
+  document.querySelectorAll(".patient-row").forEach(function (row) {
+    row.addEventListener("click", function (e) {
+      if (e.target.closest("a, button, form, input, textarea, select")) return;
+      openPatient(
+        row.getAttribute("data-patient-id"),
+        row.getAttribute("data-patient-name"),
+        row.getAttribute("data-patient-code")
+      );
+    });
+    row.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        row.click();
+      }
+    });
+  });
+
+  document.getElementById("closePatientDrawer")?.addEventListener("click", closePatient);
+  backdrop?.addEventListener("click", closePatient);
+
+  document.getElementById("openAddPatientModalEmpty")?.addEventListener("click", function () {
+    document.getElementById("addPatientModal")?.classList.add("is-open");
+  });
+
+  {% if selected_patient_id %}
+  (function () {
+    var row = document.querySelector('.patient-row[data-patient-id="{{ selected_patient_id }}"]');
+    if (row) {
+      openPatient(
+        row.getAttribute("data-patient-id"),
+        row.getAttribute("data-patient-name"),
+        row.getAttribute("data-patient-code")
+      );
+    }
+  })();
+  {% endif %}
+})();
+</script>
 {% endblock %}
