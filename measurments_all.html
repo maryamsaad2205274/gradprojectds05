@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Full Angles Analysis</h2>
+  <p>Case #{{ case.id }}</p>
+</div>
+
+<div class="measurements-grid">
+  {% for m in measurements %}
+  <div class="measurement-card">
+    <img src="{{ m.image_url }}" alt="{{ m.title }}" class="measurement-card-image">
+    <div class="measurement-card-body">
+      <h3>{{ m.title }}</h3>
+      <p><strong>Angle:</strong> {{ m.angle }}°</p>
+      <p><strong>Status:</strong> {{ m.status }}</p>
+      <p><strong>Meaning:</strong> {{ m.meaning }}</p>
+      <p><strong>Treatment:</strong> {{ m.treatment }}</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
