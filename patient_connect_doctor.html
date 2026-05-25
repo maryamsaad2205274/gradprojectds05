@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connect Doctor | DentalLandmark</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+
+  <div class="auth">
+    <div class="auth__left">
+      <div class="auth__overlay"></div>
+
+      <div class="auth__brand">
+        <div class="auth__logo"></div>
+        <div>
+          <div class="auth__name">DentalLandmark</div>
+          <div class="auth__tag">Ortho Soft-Tissue Landmark System</div>
+        </div>
+      </div>
+
+      <div class="auth__copy">
+        <h1>Connect with your doctor.</h1>
+        <p>
+          Enter the code your doctor gave you to connect your patient account
+          with your treatment profile.
+        </p>
+
+        <div class="auth__bullets">
+          <div class="bullet"> Secure doctor-patient linking</div>
+          <div class="bullet"> Access your treatment updates</div>
+          <div class="bullet"> Upload progress photos later</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="auth__right">
+      <div class="auth-card">
+        <h2>Connect to Doctor</h2>
+        <p class="auth-sub">Enter the code shared by your doctor.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="messages">
+              {% for category, msg in messages %}
+                <div class="msg {{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('patient_connect_doctor') }}">
+          <label>Connection Code</label>
+          <input type="text" name="code" placeholder="e.g. AB12CD34EF" required />
+
+          <button class="btn btn--primary" type="submit">Connect</button>
+        </form>
+
+        <div class="auth-footer">
+          <a class="link-btn" href="{{ url_for('patient_dashboard') }}">Back to Dashboard</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
