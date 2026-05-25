@@ -93,6 +93,69 @@
       </div>
     </form>
   </div>
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Preferences</h2>
+      <p class="panel__sub">Customize your experience.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('profile') }}">
+    <input type="hidden" name="action" value="preferences">
+
+    <div class="row2">
+      <div class="field">
+        <label>Theme</label>
+        <select class="input" name="theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Language</label>
+        <select class="input" name="lang">
+          <option value="en">English</option>
+          <option value="ar">Arabic</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Save Preferences</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Notifications</h2>
+      <p class="panel__sub">Control email alerts.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('profile') }}">
+    <input type="hidden" name="action" value="notifications">
+
+    <label class="check">
+      <input type="checkbox" name="email_reports" checked>
+      <span>Send me email when a report is generated</span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="email_updates">
+      <span>Send product updates</span>
+    </label>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Update Notifications</button>
+    </div>
+  </form>
+</div>
+
 
 </div>
 
