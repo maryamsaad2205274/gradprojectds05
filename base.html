@@ -1,3 +1,4 @@
+<!-- templates/base.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -44,10 +45,7 @@
           </a>
 
 
-          <a class="nav__item {% if active=='admin_datasets' %}is-active{% endif %}"
-             href="{{ url_for('admin_datasets') }}">
-            <span class="nav__icon">🗂️</span> Datasets
-          </a>
+  
 
           {# If you later add admin patients/reports pages, add them here #}
           {# <a class="nav__item {% if active=='admin_patients' %}is-active{% endif %}" href="{{ url_for('admin_patients') }}">👥 Patients</a> #}
@@ -81,7 +79,8 @@
              href="{{ url_for('reports') }}">
             <span class="nav__icon">📄</span> Reports
           </a>
-<a class="nav__item {% if active=='about' %}is-active{% endif %}" href="{{ url_for('about') }}">
+
+          <a class="nav__item {% if active=='about' %}is-active{% endif %}" href="{{ url_for('about') }}">
   <span class="nav__icon">ℹ️</span> About Us
 </a>
 
@@ -89,7 +88,8 @@
   <span class="nav__icon">✉️</span> Contact Us
 </a>
 
-          
+
+         
 
         {% endif %}
 
@@ -121,11 +121,12 @@
           </div>
         </div>
 
-        <div class="topbar__right">
+      <div class="topbar__right">
   <div class="search">
     <input placeholder="Search…" />
   </div>
 
+  <!-- Settings icon (opens dropdown) -->
   <div class="topbar__menu">
     <button class="iconbtn" type="button" id="settingsBtn" aria-label="Settings">
       ⚙️
@@ -137,14 +138,14 @@
     </div>
   </div>
 
- 
 </div>
 
-        
+
       </header>
 
       <section class="content">
 
+        <!-- Flash messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             <div class="flash-wrap">
@@ -160,6 +161,7 @@
     </main>
 
   </div>
+
   <script>
   const btn = document.getElementById("settingsBtn");
   const menu = document.getElementById("settingsMenu");
