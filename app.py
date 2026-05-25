@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
-from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from sqlalchemy import cast, String, or_
-from datetime import datetime
+from sqlalchemy.orm import joinedload
+from datetime import datetime, date, time, timedelta
 from utils.calibration import calculate_measurement
 from flask import Flask, render_template, request, jsonify, url_for
 import os
@@ -13,8 +13,36 @@ from utils.inference import predict_landmarks, save_overlay_image, landmarks_to_
 
 from utils.measurements import analyze_measurement
 from utils.frontal_measurements import calculate_frontal_measurements
+from utils.result_ui_data import (
+    build_ai_insights,
+    build_frontal_measurement_cards,
+    build_side_measurement_cards,
+)
 from utils.case_pdf import render_case_pdf
 from utils.analysis_pipeline import run_view_analysis
+from utils.scheduling import (
+    WEEKDAY_LABELS,
+    ACTIVE_APPOINTMENT_STATUSES,
+    format_time_12h,
+    weekday_label,
+    get_available_slots_for_date,
+    get_bookable_dates,
+    group_availability_by_weekday,
+    get_doctor_active_appointments,
+)
+from utils.paths import (
+    normalize_stored_path,
+    resolve_project_path,
+    static_url_filename,
+    join_stored,
+    ensure_static_subdirs,
+    upload_abs,
+    upload_rel,
+    results_abs,
+    overlay_rel,
+    resolve_overlay_path,
+    static_dir,
+)
 from utils.image_validation import FRIENDLY_FAIL, MSG_ANALYSIS_FAILED
 from utils.model_health import run_model_health_check
 
@@ -69,137 +97,23 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "app.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-db = SQLAlchemy(app)
+from extensions import db
 
-# ------------------------
-# Database Model: User
-# ------------------------
-# ------------------------
-# Database Models
-# ------------------------
+db.init_app(app)
 
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(180), unique=True, nullable=False)
-    password_hash = db.Column(db.String(300), nullable=False)
-    role = db.Column(db.String(20), default="DOCTOR")  # DOCTOR or ADMIN
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-
-class PatientAuth(db.Model):
-    __tablename__ = "patient_auth"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(180), unique=True, nullable=False)
-    password_hash = db.Column(db.String(300), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-
-class Patient(db.Model):
-    __tablename__ = "patient"
-
-    id = db.Column(db.Integer, primary_key=True)
-
-    patient_code = db.Column(db.String(50), nullable=False)
-    name = db.Column(db.String(120), nullable=False)
-
-    age = db.Column(db.Integer, nullable=True)
-    gender = db.Column(db.String(10), nullable=True)
-
-    doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    patient_auth_id = db.Column(db.Integer, db.ForeignKey("patient_auth.id"), nullable=True)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    doctor = db.relationship("User", backref=db.backref("patients", lazy=True))
-    patient_auth = db.relationship("PatientAuth", backref=db.backref("patient_profile", uselist=False))
-
-
-class Case(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=True)
-
-    case_type=db.Column(db.String(20), default="INITIAL")
-    status = db.Column(db.String(20), default="PENDING")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    patient = db.relationship("Patient", backref="cases")
-    doctor = db.relationship("User", backref=db.backref("cases", lazy=True))
-
-    doctor_comment=db.Column(db.Text, nullable=True)
-    reviewed_at= db.Column(db.DateTime, nullable=True)
-    failure_message = db.Column(db.Text, nullable=True)
-
-   
-
-
-class Image(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
-    view_type = db.Column(db.String(10), nullable=False)  # FRONT / SIDE
-    file_path = db.Column(db.String(300), nullable=False)
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    case = db.relationship("Case", backref=db.backref("images", lazy=True, cascade="all, delete-orphan"))
-
-
-class Result(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
-    view_type = db.Column(db.String(10), nullable=False)  # FRONT / SIDE
-    landmarks_json = db.Column(db.Text, nullable=False)
-    overlay_path = db.Column(db.String(300), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    case = db.relationship("Case", backref=db.backref("results", lazy=True, cascade="all, delete-orphan"))
-
-
-class Report(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
-    file_path = db.Column(db.String(300), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    case = db.relationship("Case", backref=db.backref("report", uselist=False, cascade="all, delete-orphan"))
-
-
-class PatientUploadCode(db.Model):
-    __tablename__ = "patient_upload_code"
-
-    id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(20), unique=True, nullable=False, index=True)
-    doctor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime, nullable=True)
-    used_at = db.Column(db.DateTime, nullable=True)
-
-    doctor = db.relationship("User", backref=db.backref("upload_codes", lazy=True))
-    patient = db.relationship("Patient", backref=db.backref("upload_codes", lazy=True))
-
-    @property
-    def is_used(self):
-        return self.used_at is not None
-
-    @property
-    def is_expired(self):
-        return self.expires_at is not None and datetime.utcnow() > self.expires_at
-    
+from models import (  # noqa: E402 — register models after db.init_app
+    Appointment,
+    Case,
+    DoctorAvailability,
+    Image,
+    Patient,
+    PatientAuth,
+    PatientMessage,
+    PatientUploadCode,
+    Report,
+    Result,
+    User,
+)
 
 
 def _ensure_sqlite_columns():
@@ -208,14 +122,151 @@ def _ensure_sqlite_columns():
 
     try:
         insp = inspect(db.engine)
-        if not insp.has_table("case"):
-            return
-        cols = {c["name"] for c in insp.get_columns("case")}
-        if "failure_message" not in cols:
+        if insp.has_table("case"):
+            cols = {c["name"] for c in insp.get_columns("case")}
             with db.engine.begin() as conn:
-                conn.execute(text("ALTER TABLE \"case\" ADD COLUMN failure_message TEXT"))
+                if "failure_message" not in cols:
+                    conn.execute(text("ALTER TABLE \"case\" ADD COLUMN failure_message TEXT"))
+                if "case_date" not in cols:
+                    conn.execute(text('ALTER TABLE "case" ADD COLUMN case_date DATE'))
+                if "follow_up_requested" not in cols:
+                    conn.execute(
+                        text('ALTER TABLE "case" ADD COLUMN follow_up_requested BOOLEAN DEFAULT 0')
+                    )
+        if insp.has_table("appointment"):
+            acols = {c["name"] for c in insp.get_columns("appointment")}
+            with db.engine.begin() as conn:
+                if "case_id" not in acols:
+                    conn.execute(text("ALTER TABLE appointment ADD COLUMN case_id INTEGER"))
+                if "source" not in acols:
+                    conn.execute(
+                        text("ALTER TABLE appointment ADD COLUMN source VARCHAR(20) DEFAULT 'doctor'")
+                    )
+        if not insp.has_table("doctor_availability"):
+            db.create_all()
+        if insp.has_table("patient"):
+            pcols = {c["name"] for c in insp.get_columns("patient")}
+            with db.engine.begin() as conn:
+                if "private_notes" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN private_notes TEXT"))
+                if "private_notes_updated_at" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN private_notes_updated_at DATETIME"))
+        if not insp.has_table("patient_message"):
+            db.create_all()
     except Exception:
         pass
+
+
+def _normalize_database_paths():
+    """Normalize legacy Windows-style backslashes in stored paths."""
+    changed = False
+    for img in Image.query.all():
+        norm = normalize_stored_path(img.file_path)
+        if norm and norm != img.file_path:
+            img.file_path = norm
+            changed = True
+    for res in Result.query.all():
+        norm = normalize_stored_path(res.overlay_path)
+        if norm and norm != res.overlay_path:
+            res.overlay_path = norm
+            changed = True
+    for rep in Report.query.all():
+        norm = normalize_stored_path(rep.file_path)
+        if norm and norm != rep.file_path:
+            rep.file_path = norm
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+def _parse_case_date(form_value: str):
+    """Parse case date from form; default to today."""
+    if not form_value or not str(form_value).strip():
+        return date.today()
+    try:
+        return datetime.strptime(str(form_value).strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _next_patient_appointment(doctor_id: int, patient_id: int):
+    return (
+        Appointment.query.filter_by(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+        )
+        .filter(Appointment.status.in_(ACTIVE_APPOINTMENT_STATUSES))
+        .filter(Appointment.appointment_date >= date.today())
+        .order_by(Appointment.appointment_date.asc(), Appointment.appointment_time.asc())
+        .first()
+    )
+
+
+def _patient_portal_reports(patient_id, doctor_id):
+    """PDF reports available for a patient (cases with generated reports)."""
+    rows = []
+    cases = (
+        Case.query.filter_by(patient_id=patient_id, doctor_id=doctor_id)
+        .order_by(Case.created_at.desc())
+        .all()
+    )
+    for c in cases:
+        report = Report.query.filter_by(case_id=c.id).first()
+        if not report:
+            continue
+        rows.append(
+            {
+                "case": c,
+                "report": report,
+                "title": f"Case #{c.id} — {case_type_label(c.case_type)} analysis",
+            }
+        )
+    return rows
+
+
+def _month_start():
+    now = datetime.now()
+    return datetime(now.year, now.month, 1)
+
+
+def _week_start():
+    return datetime.now() - timedelta(days=7)
+
+
+def format_relative_time(dt):
+    if not dt:
+        return ""
+    now = datetime.now()
+    if getattr(dt, "tzinfo", None):
+        dt = dt.replace(tzinfo=None)
+    diff = now - dt
+    if diff.days == 0:
+        return f"Today, {dt.strftime('%H:%M')}"
+    if diff.days == 1:
+        return "Yesterday"
+    if diff.days < 7:
+        return f"{diff.days} days ago"
+    return dt.strftime("%Y-%m-%d")
+
+
+def case_status_display(status):
+    st = (status or "").upper()
+    if st in ("REVIEWED", "REVIWED", "COMPLETED"):
+        return "Analyzed", "analyzed"
+    if st == "PENDING_REVIEW":
+        return "In review", "review"
+    if st in ("PROCESSING", "PENDING"):
+        return "Pending", "pending"
+    if st in ("NEEDS_REUPLOAD", "FAILED"):
+        return "Needs attention", "warn"
+    return st.replace("_", " ").title(), "default"
+
+
+def case_type_label(case_type):
+    ct = (case_type or "INITIAL").upper()
+    if ct == "FOLLOW_UP":
+        return "Follow-up"
+    return "Initial"
 
 
 def get_or_create_patient_access_code(patient_id: int, doctor_id: int) -> PatientUploadCode:
@@ -234,6 +285,37 @@ def get_or_create_patient_access_code(patient_id: int, doctor_id: int) -> Patien
     code_value = generate_link_code()
     while PatientUploadCode.query.filter_by(code=code_value).first():
         code_value = generate_link_code()
+
+    row = PatientUploadCode(
+        code=code_value,
+        doctor_id=doctor_id,
+        patient_id=patient_id,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def regenerate_patient_access_code(patient_id: int, doctor_id: int) -> PatientUploadCode:
+    """Replace portal code; old code stops working immediately."""
+    existing = (
+        PatientUploadCode.query.filter_by(
+            patient_id=patient_id,
+            doctor_id=doctor_id,
+        )
+        .order_by(PatientUploadCode.created_at.asc())
+        .first()
+    )
+
+    code_value = generate_link_code()
+    while PatientUploadCode.query.filter_by(code=code_value).first():
+        code_value = generate_link_code()
+
+    if existing:
+        existing.code = code_value
+        existing.created_at = datetime.utcnow()
+        db.session.commit()
+        return existing
 
     row = PatientUploadCode(
         code=code_value,
@@ -523,16 +605,60 @@ def register():
 @login_required
 def dashboard():
     doctor_id = session["user_id"]
+    now = datetime.now()
+    today = now.date()
 
     total_patients = Patient.query.filter_by(doctor_id=doctor_id).count()
     total_cases = Case.query.filter_by(doctor_id=doctor_id).count()
-    completed_cases = Case.query.filter_by(doctor_id=doctor_id, status="COMPLETED").count()
-    pending_cases = Case.query.filter_by(doctor_id=doctor_id, status="PENDING").count()
+
+    needs_review_statuses = ("PENDING", "PENDING_REVIEW", "PROCESSING")
+    pending_review = Case.query.filter(
+        Case.doctor_id == doctor_id,
+        Case.status.in_(needs_review_statuses),
+    ).count()
+
+    today_appointments = (
+        Appointment.query.filter_by(doctor_id=doctor_id, appointment_date=today)
+        .filter(Appointment.status != "CANCELLED")
+        .order_by(Appointment.appointment_time.asc())
+        .all()
+    )
+    appointments_today = len(today_appointments)
+    appointments_remaining = sum(
+        1
+        for a in today_appointments
+        if a.status == "SCHEDULED" and a.starts_at >= now
+    )
 
     recent_cases = (
-        Case.query
-        .filter_by(doctor_id=doctor_id)
+        Case.query.filter_by(doctor_id=doctor_id)
         .order_by(Case.created_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    recent_case_rows = []
+    for c in recent_cases:
+        label, tone = case_status_display(c.status)
+        recent_case_rows.append(
+            {
+                "case": c,
+                "patient": c.patient,
+                "status_label": label,
+                "status_tone": tone,
+                "relative_time": format_relative_time(c.created_at),
+                "type_label": case_type_label(c.case_type),
+            }
+        )
+
+    patients_for_appt = Patient.query.filter_by(doctor_id=doctor_id).order_by(Patient.name).all()
+
+    unread_messages = PatientMessage.query.filter_by(
+        doctor_id=doctor_id, read=False
+    ).count()
+    recent_messages = (
+        PatientMessage.query.filter_by(doctor_id=doctor_id)
+        .order_by(PatientMessage.created_at.desc())
         .limit(5)
         .all()
     )
@@ -543,10 +669,249 @@ def dashboard():
         active="dashboard",
         total_patients=total_patients,
         total_cases=total_cases,
-        completed_cases=completed_cases,
-        pending_cases=pending_cases,
-        recent_cases=recent_cases
+        pending_review=pending_review,
+        appointments_today=appointments_today,
+        appointments_remaining=appointments_remaining,
+        today_appointments=today_appointments,
+        recent_case_rows=recent_case_rows,
+        patients_for_appt=patients_for_appt,
+        today_iso=today.isoformat(),
+        unread_messages=unread_messages,
+        recent_messages=recent_messages,
     )
+
+
+@app.route("/messages/<int:message_id>/read", methods=["POST"])
+@login_required
+def mark_message_read(message_id):
+    msg = PatientMessage.query.filter_by(
+        id=message_id, doctor_id=session["user_id"]
+    ).first_or_404()
+    msg.read = True
+    db.session.commit()
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/appointments", methods=["GET"])
+@login_required
+def appointments():
+    doctor_id = session["user_id"]
+    patients_list = Patient.query.filter_by(doctor_id=doctor_id).order_by(Patient.name).all()
+
+    upcoming = (
+        Appointment.query.filter_by(doctor_id=doctor_id)
+        .filter(Appointment.status != "CANCELLED")
+        .filter(Appointment.appointment_date >= date.today())
+        .order_by(Appointment.appointment_date.asc(), Appointment.appointment_time.asc())
+        .limit(50)
+        .all()
+    )
+
+    past = (
+        Appointment.query.filter_by(doctor_id=doctor_id)
+        .filter(
+            (Appointment.appointment_date < date.today())
+            | (Appointment.status == "COMPLETED")
+        )
+        .order_by(Appointment.appointment_date.desc(), Appointment.appointment_time.desc())
+        .limit(30)
+        .all()
+    )
+
+    return render_template(
+        "appointments.html",
+        name=session.get("user_name"),
+        active="appointments",
+        patients=patients_list,
+        upcoming=upcoming,
+        past=past,
+        today_iso=date.today().isoformat(),
+    )
+
+
+@app.route("/appointments/add", methods=["POST"])
+@login_required
+def add_appointment():
+    doctor_id = session["user_id"]
+    reason = (request.form.get("reason") or "").strip()
+    date_str = (request.form.get("appointment_date") or "").strip()
+    time_str = (request.form.get("appointment_time") or "").strip()
+    patient_id = (request.form.get("patient_id") or "").strip()
+    patient_code_input = (request.form.get("patient_code") or "").strip().upper()
+    notes = (request.form.get("notes") or "").strip()
+    redirect_to = request.form.get("redirect_to") or "appointments"
+    case_id = request.form.get("case_id", type=int)
+    if redirect_to == "dashboard":
+        back = url_for("dashboard")
+    elif redirect_to == "result" and case_id:
+        back = url_for("view_result", case_id=case_id)
+    elif redirect_to == "appointments":
+        back = url_for("appointments")
+    else:
+        back = url_for("appointments")
+
+    if not reason:
+        flash("Appointment reason is required.", "error")
+        return redirect(back)
+
+    try:
+        appt_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        appt_time = datetime.strptime(time_str, "%H:%M").time()
+    except ValueError:
+        flash("Please enter a valid date and time.", "error")
+        return redirect(back)
+
+    pid = None
+    if patient_id and patient_id.isdigit():
+        patient = Patient.query.filter_by(id=int(patient_id), doctor_id=doctor_id).first()
+        if not patient:
+            flash("Patient not found.", "error")
+            return redirect(back)
+        pid = patient.id
+    elif patient_code_input:
+        patient = Patient.query.filter_by(
+            patient_code=patient_code_input, doctor_id=doctor_id
+        ).first()
+        if not patient:
+            flash(f"No patient found with code {patient_code_input}.", "error")
+            return redirect(back)
+        pid = patient.id
+
+    case_id = request.form.get("case_id", type=int)
+    if case_id:
+        linked = Case.query.filter_by(id=case_id, doctor_id=doctor_id).first()
+        if not linked:
+            case_id = None
+
+    appt = Appointment(
+        doctor_id=doctor_id,
+        patient_id=pid,
+        case_id=case_id,
+        reason=reason,
+        appointment_date=appt_date,
+        appointment_time=appt_time,
+        notes=notes or None,
+        status="SCHEDULED",
+        source="doctor",
+    )
+    db.session.add(appt)
+    db.session.commit()
+
+    flash("Appointment scheduled.", "success")
+    return redirect(back)
+
+
+@app.route("/appointments/<int:appointment_id>/complete", methods=["POST"])
+@login_required
+def complete_appointment(appointment_id):
+    appt = Appointment.query.filter_by(
+        id=appointment_id, doctor_id=session["user_id"]
+    ).first_or_404()
+    appt.status = "COMPLETED"
+    db.session.commit()
+    flash("Appointment marked complete.", "success")
+    return redirect(request.referrer or url_for("appointments"))
+
+
+@app.route("/appointments/<int:appointment_id>/cancel", methods=["POST"])
+@login_required
+def cancel_appointment(appointment_id):
+    appt = Appointment.query.filter_by(
+        id=appointment_id, doctor_id=session["user_id"]
+    ).first_or_404()
+    appt.status = "CANCELLED"
+    db.session.commit()
+    flash("Appointment cancelled.", "success")
+    return redirect(request.referrer or url_for("appointments"))
+
+
+@app.route("/appointments/<int:appointment_id>/delete", methods=["POST"])
+@login_required
+def delete_appointment(appointment_id):
+    appt = Appointment.query.filter_by(
+        id=appointment_id, doctor_id=session["user_id"]
+    ).first_or_404()
+    db.session.delete(appt)
+    db.session.commit()
+    flash("Appointment removed.", "success")
+    return redirect(request.referrer or url_for("appointments"))
+
+
+@app.route("/schedule", methods=["GET"])
+@login_required
+def doctor_schedule():
+    doctor_id = session["user_id"]
+    slots = (
+        DoctorAvailability.query.filter_by(doctor_id=doctor_id, is_active=True)
+        .order_by(DoctorAvailability.weekday.asc(), DoctorAvailability.slot_time.asc())
+        .all()
+    )
+    grouped = group_availability_by_weekday(slots)
+    weekday_options = list(enumerate(WEEKDAY_LABELS))
+    return render_template(
+        "doctor_schedule.html",
+        name=session.get("user_name"),
+        active="schedule",
+        grouped=grouped,
+        weekday_options=weekday_options,
+        slots=slots,
+    )
+
+
+@app.route("/schedule/add", methods=["POST"])
+@login_required
+def doctor_schedule_add():
+    doctor_id = session["user_id"]
+    weekday_raw = request.form.get("weekday", "").strip()
+    time_str = request.form.get("slot_time", "").strip()
+
+    try:
+        weekday = int(weekday_raw)
+        if weekday < 0 or weekday > 6:
+            raise ValueError()
+    except ValueError:
+        flash("Please select a valid day of the week.", "error")
+        return redirect(url_for("doctor_schedule"))
+
+    try:
+        slot_time = datetime.strptime(time_str, "%H:%M").time()
+    except ValueError:
+        flash("Please enter a valid time.", "error")
+        return redirect(url_for("doctor_schedule"))
+
+    duplicate = DoctorAvailability.query.filter_by(
+        doctor_id=doctor_id,
+        weekday=weekday,
+        slot_time=slot_time,
+        is_active=True,
+    ).first()
+    if duplicate:
+        flash("This time slot already exists for that day.", "error")
+        return redirect(url_for("doctor_schedule"))
+
+    db.session.add(
+        DoctorAvailability(
+            doctor_id=doctor_id,
+            weekday=weekday,
+            slot_time=slot_time,
+            is_active=True,
+        )
+    )
+    db.session.commit()
+    flash(f"Added {weekday_label(weekday)} at {format_time_12h(slot_time)}.", "success")
+    return redirect(url_for("doctor_schedule"))
+
+
+@app.route("/schedule/<int:slot_id>/delete", methods=["POST"])
+@login_required
+def doctor_schedule_delete(slot_id):
+    slot = DoctorAvailability.query.filter_by(
+        id=slot_id, doctor_id=session["user_id"]
+    ).first_or_404()
+    db.session.delete(slot)
+    db.session.commit()
+    flash("Availability slot removed.", "success")
+    return redirect(url_for("doctor_schedule"))
 
 
 @app.route("/new-analysis", methods=["GET", "POST"])
@@ -565,7 +930,8 @@ def new_analysis():
             "new_analysis.html",
             name=session.get("user_name"),
             active="new_analysis",
-            patients=patients
+            patients=patients,
+            today_iso=date.today().isoformat(),
         )
 
     # =========================
@@ -605,39 +971,47 @@ def new_analysis():
     # -------------------------
     patient = None
 
-    if new_code:
-        new_code = new_code.upper()
+    if using_new:
+        if not new_name:
+            flash("Please enter the patient name.", "error")
+            return redirect(url_for("new_analysis"))
+
+        if not new_code:
+            new_code = f"PT-{uuid.uuid4().hex[:6].upper()}"
+        else:
+            new_code = new_code.upper()
+
+        age_val = None
+        if new_age:
+            try:
+                age_val = int(new_age)
+                if age_val < 1 or age_val > 119:
+                    raise ValueError()
+            except ValueError:
+                flash("Patient age must be a number between 1 and 119.", "error")
+                return redirect(url_for("new_analysis"))
+
+        if new_gender and new_gender not in ("MALE", "FEMALE"):
+            flash("Please select Male, Female, or leave gender empty.", "error")
+            return redirect(url_for("new_analysis"))
 
         patient = Patient.query.filter_by(
             patient_code=new_code,
-            doctor_id=session["user_id"]
+            doctor_id=session["user_id"],
         ).first()
 
-        if not patient:
-            if not new_name:
-                flash("Please enter the patient name.", "error")
-                return redirect(url_for("new_analysis"))
-
-            age_val = None
-            if new_age:
-                try:
-                    age_val = int(new_age)
-                    if age_val < 1 or age_val > 119:
-                        raise ValueError()
-                except Exception:
-                    flash("Age must be a valid number between 1 and 119.", "error")
-                    return redirect(url_for("new_analysis"))
-
-            if new_gender and new_gender not in ["MALE", "FEMALE"]:
-                flash("Gender must be MALE or FEMALE (or leave it empty).", "error")
-                return redirect(url_for("new_analysis"))
-
+        if patient:
+            patient.name = new_name
+            patient.age = age_val
+            patient.gender = new_gender if new_gender else None
+            db.session.commit()
+        else:
             patient = Patient(
                 patient_code=new_code,
                 name=new_name,
                 age=age_val,
                 gender=new_gender if new_gender else None,
-                doctor_id=session["user_id"]
+                doctor_id=session["user_id"],
             )
             db.session.add(patient)
             db.session.commit()
@@ -656,18 +1030,28 @@ def new_analysis():
             flash("Selected patient not found.", "error")
             return redirect(url_for("new_analysis"))
 
+    upload_notes = (request.form.get("upload_private_notes") or "").strip()
+    if upload_notes:
+        patient.private_notes = upload_notes
+        patient.private_notes_updated_at = datetime.utcnow()
+
+    case_date_val = _parse_case_date(request.form.get("case_date") or "")
+    if case_date_val is None:
+        flash("Please enter a valid case date.", "error")
+        return redirect(url_for("new_analysis"))
+
     # =========================
     # Create case
     # =========================
-    os.makedirs("static/uploads", exist_ok=True)
-    os.makedirs("static/results", exist_ok=True)
-    os.makedirs("outputs", exist_ok=True)
+    ensure_static_subdirs("uploads", "results")
+    os.makedirs(os.path.join(BASE_DIR, "outputs"), exist_ok=True)
 
     new_case = Case(
         doctor_id=session["user_id"],
         patient_id=patient.id,
         case_type="INITIAL",
-        status="PROCESSING"
+        status="PROCESSING",
+        case_date=case_date_val,
     )
     db.session.add(new_case)
     db.session.commit()
@@ -676,19 +1060,20 @@ def new_analysis():
     try:
         if has_side:
             side_name = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
-            side_path = os.path.join("static/uploads", side_name)
-            side_file.save(side_path)
-            db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_path))
+            side_rel = upload_rel(side_name)
+            side_abs = upload_abs(side_name, BASE_DIR)
+            side_file.save(side_abs)
+            db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_rel))
             db.session.commit()
 
-            side_out = run_view_analysis(new_case.id, side_path, "SIDE")
+            side_out = run_view_analysis(new_case.id, side_abs, "SIDE")
             if side_out["success"]:
                 db.session.add(
                     Result(
                         case_id=new_case.id,
                         view_type="SIDE",
                         landmarks_json=side_out["landmarks_json"],
-                        overlay_path=side_out["overlay_path"],
+                        overlay_path=normalize_stored_path(side_out["overlay_path"]),
                     )
                 )
             outcomes.append(
@@ -702,19 +1087,20 @@ def new_analysis():
 
         if has_front_ns:
             front_name = f"{new_case.id}_front_ns_{uuid.uuid4().hex}.jpg"
-            front_path = os.path.join("static/uploads", front_name)
-            front_ns_file.save(front_path)
-            db.session.add(Image(case_id=new_case.id, view_type="FRONT_NS", file_path=front_path))
+            front_rel = upload_rel(front_name)
+            front_abs = upload_abs(front_name, BASE_DIR)
+            front_ns_file.save(front_abs)
+            db.session.add(Image(case_id=new_case.id, view_type="FRONT_NS", file_path=front_rel))
             db.session.commit()
 
-            front_out = run_view_analysis(new_case.id, front_path, "FRONT_NS")
+            front_out = run_view_analysis(new_case.id, front_abs, "FRONT_NS")
             if front_out["success"]:
                 db.session.add(
                     Result(
                         case_id=new_case.id,
                         view_type="FRONT_NS",
                         landmarks_json=front_out["landmarks_json"],
-                        overlay_path=front_out["overlay_path"],
+                        overlay_path=normalize_stored_path(front_out["overlay_path"]),
                     )
                 )
             outcomes.append(
@@ -967,31 +1353,96 @@ def view_result(case_id):
     def _static_url_for_image(img_row):
         if not img_row or not img_row.file_path:
             return None
-        fp = img_row.file_path.replace("\\", "/")
-        if fp.startswith("static/"):
-            fp = fp[len("static/") :]
+        fp = static_url_filename(img_row.file_path)
+        if not fp:
+            return None
         return url_for("static", filename=fp)
 
     side_upload_url = _static_url_for_image(side_img) if side_img and not side else None
     front_upload_url = _static_url_for_image(front_ns_img) if front_ns_img and not front_ns else None
 
+    patient = case.patient
+    portal_code = None
+    if patient:
+        code_row = (
+            PatientUploadCode.query.filter_by(
+                patient_id=patient.id,
+                doctor_id=session["user_id"],
+            )
+            .order_by(PatientUploadCode.created_at.asc())
+            .first()
+        )
+        if not code_row:
+            code_row = get_or_create_patient_access_code(patient.id, session["user_id"])
+        portal_code = code_row.code
+
+    next_appt = None
+    case_appt = None
+    if patient:
+        next_appt = _next_patient_appointment(session["user_id"], patient.id)
+        case_appt = (
+            Appointment.query.filter_by(
+                doctor_id=session["user_id"],
+                patient_id=patient.id,
+                case_id=case.id,
+            )
+            .filter(Appointment.status.in_(ACTIVE_APPOINTMENT_STATUSES))
+            .filter(Appointment.appointment_date >= date.today())
+            .order_by(Appointment.appointment_date.asc(), Appointment.appointment_time.asc())
+            .first()
+        )
+        if case_appt:
+            next_appt = case_appt
+
+    status_label, status_tone = case_status_display(case.status)
+    age_line = ""
+    if patient and patient.age is not None:
+        age_line = f"{patient.age}y"
+    gender_line = ""
+    if patient and patient.gender:
+        gender_line = patient.gender.title()
+    type_line = case_type_label(case.case_type)
+
+    side_measurement_cards = build_side_measurement_cards(side_points) if side_points else []
+    frontal_measurement_cards = (
+        build_frontal_measurement_cards(front_ns_measurements) if front_ns_measurements else []
+    )
+    ai_insights = build_ai_insights(
+        side_points,
+        front_ns_measurements,
+        (getattr(case, "doctor_comment", None) or "").strip(),
+    )
+
     return render_template(
-    "result.html",
-    name=session.get("user_name"),
-    active="cases",
-    case=case,
-    side_overlay=side.overlay_path if side else None,
-    front_ns_overlay=front_ns.overlay_path if front_ns else None,
-    side_points=side_points,
-    front_ns_points=front_ns_points,
-    side_original=side_original,
-    front_ns_original=front_ns_original,
-    front_ns_measurements=front_ns_measurements,
-    view_summary=view_summary,
-    friendly_fail=FRIENDLY_FAIL,
-    side_upload_url=side_upload_url,
-    front_upload_url=front_upload_url,
-)
+        "result.html",
+        name=session.get("user_name"),
+        active="analysis",
+        case=case,
+        patient=patient,
+        portal_code=portal_code,
+        next_appt=next_appt,
+        status_label=status_label,
+        status_tone=status_tone,
+        age_line=age_line,
+        gender_line=gender_line,
+        type_line=type_line,
+        today_iso=date.today().isoformat(),
+        case_appt=case_appt,
+        side_overlay=side.overlay_path if side else None,
+        front_ns_overlay=front_ns.overlay_path if front_ns else None,
+        side_points=side_points,
+        front_ns_points=front_ns_points,
+        side_original=side_original,
+        front_ns_original=front_ns_original,
+        front_ns_measurements=front_ns_measurements,
+        view_summary=view_summary,
+        friendly_fail=FRIENDLY_FAIL,
+        side_upload_url=side_upload_url,
+        front_upload_url=front_upload_url,
+        side_measurement_cards=side_measurement_cards,
+        frontal_measurement_cards=frontal_measurement_cards,
+        ai_insights=ai_insights,
+    )
 
 @app.route("/report/<int:case_id>")
 @login_required
@@ -1081,17 +1532,19 @@ def download_report(case_id):
     # ----------------------------
     # Save/Update report record
     # ----------------------------
+    pdf_stored = normalize_stored_path(pdf_path)
     existing = Report.query.filter_by(case_id=case_id).first()
     if existing:
-        existing.file_path = pdf_path
+        existing.file_path = pdf_stored
         existing.created_at = datetime.utcnow()
     else:
-        db.session.add(Report(case_id=case_id, file_path=pdf_path))
+        db.session.add(Report(case_id=case_id, file_path=pdf_stored))
 
     db.session.commit()
 
+    pdf_abs = resolve_project_path(pdf_stored)
     return send_file(
-        pdf_path,
+        pdf_abs,
         as_attachment=True,
         download_name=f"case_{case_id}_report.pdf"
     )
@@ -1105,7 +1558,12 @@ def reports():
     doctor_id = session["user_id"]
 
     # show only cases belonging to this doctor
-    cases = Case.query.filter_by(doctor_id=doctor_id).order_by(Case.created_at.desc()).all()
+    cases = (
+        Case.query.options(joinedload(Case.patient))
+        .filter_by(doctor_id=doctor_id)
+        .order_by(Case.created_at.desc())
+        .all()
+    )
 
     # map case_id -> report
     reps = Report.query.join(Case, Report.case_id == Case.id).filter(Case.doctor_id == doctor_id).all()
@@ -1157,14 +1615,12 @@ def update_landmarks(case_id):
         flash("Original image not found.", "error")
         return redirect(url_for("view_result", case_id=case_id))
 
-    os.makedirs("static/results", exist_ok=True)
-    os.makedirs("outputs", exist_ok=True)
-    new_overlay = os.path.join(
-        "static/results",
-        f"{case_id}_{view_type.lower()}_overlay.jpg"
-    )
+    ensure_static_subdirs("results")
+    os.makedirs(os.path.join(BASE_DIR, "outputs"), exist_ok=True)
+    new_overlay = results_abs(f"{case_id}_{view_type.lower()}_overlay.jpg", BASE_DIR)
 
-    image_bgr = cv2.imread(img_row.file_path)
+    image_abs = resolve_project_path(img_row.file_path, BASE_DIR)
+    image_bgr = cv2.imread(image_abs) if image_abs else None
     if image_bgr is None:
         flash("Could not read original image.", "error")
         return redirect(url_for("view_result", case_id=case_id))
@@ -1174,7 +1630,7 @@ def update_landmarks(case_id):
     overlay = draw_points(image_bgr, pts)
     save_overlay_image(overlay, new_overlay)
 
-    res.overlay_path = f"results/{case_id}_{view_type.lower()}_overlay.jpg"
+    res.overlay_path = overlay_rel(case_id, view_type)
 
     db.session.commit()
 
@@ -1372,6 +1828,7 @@ def patients():
     patients_list = query.order_by(Patient.created_at.desc()).all()
 
     access_code_by_patient = {}
+    latest_case_by_patient = {}
     for p in patients_list:
         row = (
             PatientUploadCode.query.filter_by(
@@ -1383,6 +1840,13 @@ def patients():
         )
         if row:
             access_code_by_patient[p.id] = row.code
+        latest_case_by_patient[p.id] = (
+            Case.query.filter_by(patient_id=p.id, doctor_id=doctor_id)
+            .order_by(Case.created_at.desc())
+            .first()
+        )
+
+    selected_patient_id = request.args.get("patient_id", type=int)
 
     return render_template(
         "patients.html",
@@ -1391,7 +1855,62 @@ def patients():
         patients=patients_list,
         q=q,
         access_code_by_patient=access_code_by_patient,
+        latest_case_by_patient=latest_case_by_patient,
+        selected_patient_id=selected_patient_id,
     )
+
+
+@app.route("/patients/add", methods=["POST"])
+@login_required
+def doctor_add_patient():
+    doctor_id = session["user_id"]
+    name = clean_name(request.form.get("name", ""))
+    patient_code = (request.form.get("patient_code") or "").strip().upper()
+    age_raw = (request.form.get("age") or "").strip()
+    gender = (request.form.get("gender") or "").strip().upper()
+
+    if not name:
+        flash("Patient name is required.", "error")
+        return redirect(url_for("patients"))
+
+    if not patient_code:
+        flash("Patient code is required.", "error")
+        return redirect(url_for("patients"))
+
+    existing = Patient.query.filter_by(
+        patient_code=patient_code,
+        doctor_id=doctor_id,
+    ).first()
+    if existing:
+        flash("A patient with this code already exists.", "error")
+        return redirect(url_for("patients"))
+
+    age_val = None
+    if age_raw:
+        try:
+            age_val = int(age_raw)
+            if age_val < 1 or age_val > 119:
+                raise ValueError()
+        except Exception:
+            flash("Age must be between 1 and 119.", "error")
+            return redirect(url_for("patients"))
+
+    if gender and gender not in ["MALE", "FEMALE"]:
+        flash("Gender must be Male or Female.", "error")
+        return redirect(url_for("patients"))
+
+    patient = Patient(
+        doctor_id=doctor_id,
+        patient_code=patient_code,
+        name=name,
+        age=age_val,
+        gender=gender if gender else None,
+    )
+    db.session.add(patient)
+    db.session.commit()
+    flash(f"Patient {name} ({patient_code}) added.", "success")
+    return redirect(url_for("patients", patient_id=patient.id))
+
 
 @app.route("/admin/patients")
 @admin_required
@@ -1624,7 +2143,48 @@ def generate_patient_code(patient_id):
 
     code_row = get_or_create_patient_access_code(patient.id, session["user_id"])
     flash(f"Patient access code for {patient.name}: {code_row.code}", "success")
-    return redirect(url_for("patients"))
+    ret = request.form.get("redirect_to")
+    cid = request.form.get("case_id", type=int)
+    if ret == "result" and cid:
+        return redirect(url_for("view_result", case_id=cid))
+    return redirect(url_for("patients", patient_id=patient.id))
+
+
+@app.route("/patients/<int:patient_id>/regenerate-code", methods=["POST"])
+@login_required
+def regenerate_patient_code_route(patient_id):
+    patient = Patient.query.filter_by(
+        id=patient_id,
+        doctor_id=session["user_id"],
+    ).first_or_404()
+
+    code_row = regenerate_patient_access_code(patient.id, session["user_id"])
+    flash(f"New access code for {patient.name}: {code_row.code} (previous code invalidated).", "success")
+    ret = request.form.get("redirect_to")
+    cid = request.form.get("case_id", type=int)
+    if ret == "result" and cid:
+        return redirect(url_for("view_result", case_id=cid))
+    return redirect(url_for("patients", patient_id=patient.id))
+
+
+@app.route("/patients/<int:patient_id>/notes", methods=["POST"])
+@login_required
+def save_patient_notes(patient_id):
+    patient = Patient.query.filter_by(
+        id=patient_id,
+        doctor_id=session["user_id"],
+    ).first_or_404()
+
+    notes = (request.form.get("private_notes") or "").strip()
+    patient.private_notes = notes if notes else None
+    patient.private_notes_updated_at = datetime.utcnow()
+    db.session.commit()
+    flash(f"Private notes saved for {patient.name}.", "success")
+    ret = request.form.get("redirect_to")
+    cid = request.form.get("case_id", type=int)
+    if ret == "result" and cid:
+        return redirect(url_for("view_result", case_id=cid))
+    return redirect(url_for("patients", patient_id=patient.id))
 
 
 @app.route("/patient/connect-doctor", methods=["GET", "POST"])
@@ -1683,6 +2243,31 @@ def patient_portal(code):
 
     latest_case = patient_cases[0] if len(patient_cases) > 0 else None
 
+    next_appointment = _next_patient_appointment(doctor.id, patient.id)
+
+    availability_rows = (
+        DoctorAvailability.query.filter_by(doctor_id=doctor.id, is_active=True)
+        .order_by(DoctorAvailability.weekday.asc(), DoctorAvailability.slot_time.asc())
+        .all()
+    )
+    bookable_dates = get_bookable_dates(doctor.id, availability_rows)
+    selected_book_date = request.args.get("book_date", "").strip()
+    book_slots = []
+    if selected_book_date:
+        try:
+            bd = datetime.strptime(selected_book_date, "%Y-%m-%d").date()
+            if bd >= date.today():
+                book_slots = get_available_slots_for_date(doctor.id, bd, availability_rows)
+        except ValueError:
+            selected_book_date = ""
+
+    can_book_followup = bool(
+        latest_case
+        and latest_case.follow_up_requested
+        and bookable_dates
+        and not next_appointment
+    )
+
     def _status_label(st):
         if st == "NEEDS_REUPLOAD":
             return "Needs re-upload"
@@ -1696,6 +2281,9 @@ def patient_portal(code):
             return "Processing"
         return st.replace("_", " ").title()
 
+    portal_reports = _patient_portal_reports(patient.id, doctor.id)
+    last_visit = latest_case.created_at if latest_case else patient.created_at
+
     return render_template(
         "patient_portal.html",
         patient=patient,
@@ -1705,7 +2293,112 @@ def patient_portal(code):
         latest_case=latest_case,
         status_label=_status_label,
         friendly_fail=FRIENDLY_FAIL,
+        next_appointment=next_appointment,
+        portal_reports=portal_reports,
+        reports_count=len(portal_reports),
+        submissions_count=len(patient_cases),
+        last_visit=last_visit,
+        can_book_followup=can_book_followup,
+        bookable_dates=bookable_dates,
+        book_slots=book_slots,
+        selected_book_date=selected_book_date,
+        weekday_label=weekday_label,
     )
+
+
+@app.route("/patient-portal/<code>/book-appointment", methods=["POST"])
+def patient_book_appointment(code):
+    code_row = PatientUploadCode.query.filter_by(code=code.upper()).first_or_404()
+    patient = Patient.query.get_or_404(code_row.patient_id)
+    doctor_id = code_row.doctor_id
+
+    date_str = (request.form.get("appointment_date") or "").strip()
+    time_str = (request.form.get("appointment_time") or "").strip()
+
+    try:
+        appt_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        appt_time = datetime.strptime(time_str, "%H:%M").time()
+    except ValueError:
+        flash("Please select a valid date and time.", "error")
+        return redirect(url_for("patient_portal", code=code_row.code))
+
+    if appt_date < date.today():
+        flash("Please choose a future date.", "error")
+        return redirect(url_for("patient_portal", code=code_row.code))
+
+    availability_rows = DoctorAvailability.query.filter_by(
+        doctor_id=doctor_id, is_active=True
+    ).all()
+    slots = get_available_slots_for_date(doctor_id, appt_date, availability_rows)
+    matching = [s for s in slots if s["time"] == appt_time and s["available"]]
+    if not matching:
+        flash("That time is no longer available. Please choose another slot.", "error")
+        return redirect(url_for("patient_portal", code=code_row.code, book_date=date_str))
+
+    latest_case = (
+        Case.query.filter_by(patient_id=patient.id, doctor_id=doctor_id)
+        .order_by(Case.created_at.desc())
+        .first()
+    )
+
+    appt = Appointment(
+        doctor_id=doctor_id,
+        patient_id=patient.id,
+        case_id=latest_case.id if latest_case else None,
+        reason="Follow-up checkup (patient booking)",
+        appointment_date=appt_date,
+        appointment_time=appt_time,
+        status="BOOKED",
+        source="patient",
+        notes=None,
+    )
+    db.session.add(appt)
+    db.session.commit()
+
+    flash("Your appointment has been booked. We look forward to seeing you!", "success")
+    return redirect(url_for("patient_portal", code=code_row.code))
+
+
+@app.route("/patient-portal/<code>/message", methods=["POST"])
+def patient_send_message(code):
+    code_row = PatientUploadCode.query.filter_by(code=code.upper()).first_or_404()
+    patient = Patient.query.get_or_404(code_row.patient_id)
+    question = (request.form.get("question") or "").strip()
+
+    if len(question) < 5:
+        flash("Please write a short question (at least a few words).", "error")
+        return redirect(url_for("patient_portal", code=code_row.code))
+    if len(question) > 280:
+        flash("Please keep your question under 280 characters.", "error")
+        return redirect(url_for("patient_portal", code=code_row.code))
+
+    msg = PatientMessage(
+        patient_id=patient.id,
+        doctor_id=code_row.doctor_id,
+        question=question,
+        read=False,
+    )
+    db.session.add(msg)
+    db.session.commit()
+    flash("Your question was sent to your doctor.", "success")
+    return redirect(url_for("patient_portal", code=code_row.code))
+
+
+@app.route("/patient-portal/<code>/report/<int:case_id>")
+def patient_portal_report(code, case_id):
+    code_row = PatientUploadCode.query.filter_by(code=code.upper()).first_or_404()
+    case = Case.query.filter_by(
+        id=case_id,
+        patient_id=code_row.patient_id,
+        doctor_id=code_row.doctor_id,
+    ).first_or_404()
+    report = Report.query.filter_by(case_id=case.id).first_or_404()
+    path = resolve_project_path(report.file_path)
+    if not path or not os.path.isfile(path):
+        flash("Report file is not available yet.", "error")
+        return redirect(url_for("patient_portal", code=code_row.code))
+    return send_file(path, as_attachment=True, download_name=f"case_{case.id}_report.pdf")
+
 
 @app.route("/patient-portal/<code>/upload", methods=["POST"])
 def patient_upload_progress(code):
@@ -1725,9 +2418,8 @@ def patient_upload_progress(code):
         flash("Please upload at least one photo (side and/or frontal).", "error")
         return redirect(url_for("patient_portal", code=code_row.code))
 
-    os.makedirs("static/uploads", exist_ok=True)
-    os.makedirs("static/results", exist_ok=True)
-    os.makedirs("outputs", exist_ok=True)
+    ensure_static_subdirs("uploads", "results")
+    os.makedirs(os.path.join(BASE_DIR, "outputs"), exist_ok=True)
 
     new_case = Case(
         doctor_id=code_row.doctor_id,
@@ -1742,19 +2434,20 @@ def patient_upload_progress(code):
     try:
         if has_side:
             side_name = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
-            side_path = os.path.join("static/uploads", side_name)
-            side_file.save(side_path)
-            db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_path))
+            side_rel = upload_rel(side_name)
+            side_abs = upload_abs(side_name, BASE_DIR)
+            side_file.save(side_abs)
+            db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=side_rel))
             db.session.commit()
 
-            side_out = run_view_analysis(new_case.id, side_path, "SIDE")
+            side_out = run_view_analysis(new_case.id, side_abs, "SIDE")
             if side_out["success"]:
                 db.session.add(
                     Result(
                         case_id=new_case.id,
                         view_type="SIDE",
                         landmarks_json=side_out["landmarks_json"],
-                        overlay_path=side_out["overlay_path"],
+                        overlay_path=normalize_stored_path(side_out["overlay_path"]),
                     )
                 )
             outcomes.append(
@@ -1768,19 +2461,20 @@ def patient_upload_progress(code):
 
         if has_front:
             front_name = f"{new_case.id}_front_ns_{uuid.uuid4().hex}.jpg"
-            front_path = os.path.join("static/uploads", front_name)
-            front_ns_file.save(front_path)
-            db.session.add(Image(case_id=new_case.id, view_type="FRONT_NS", file_path=front_path))
+            front_rel = upload_rel(front_name)
+            front_abs = upload_abs(front_name, BASE_DIR)
+            front_ns_file.save(front_abs)
+            db.session.add(Image(case_id=new_case.id, view_type="FRONT_NS", file_path=front_rel))
             db.session.commit()
 
-            front_out = run_view_analysis(new_case.id, front_path, "FRONT_NS")
+            front_out = run_view_analysis(new_case.id, front_abs, "FRONT_NS")
             if front_out["success"]:
                 db.session.add(
                     Result(
                         case_id=new_case.id,
                         view_type="FRONT_NS",
                         landmarks_json=front_out["landmarks_json"],
-                        overlay_path=front_out["overlay_path"],
+                        overlay_path=normalize_stored_path(front_out["overlay_path"]),
                     )
                 )
             outcomes.append(
@@ -1823,19 +2517,26 @@ def review_case(case_id):
     
     if request.method == "POST":
         doctor_comment = request.form.get("doctor_comment", "").strip()
+        follow_up = request.form.get("follow_up_requested") == "1"
 
         case.doctor_comment = doctor_comment
         case.reviewed_at = datetime.utcnow()
-
-    
-        case.status="REVIWED"
+        case.follow_up_requested = follow_up
+        case.status = "REVIWED"
 
         db.session.commit()
 
-        flash("Doctor comment saved successfully." , "success")
+        flash("Doctor review saved successfully.", "success")
+        if follow_up:
+            flash("Patient can book a follow-up from their portal when you have schedule slots set.", "success")
         return redirect(url_for("view_result", case_id=case.id))
-    
-    return render_template("review_case.html", case=case)
+
+    return render_template(
+        "review_case.html",
+        case=case,
+        name=session.get("user_name"),
+        active="analysis",
+    )
 
 
 
@@ -1887,7 +2588,7 @@ def calibration():
     image_url = None
     error = None
 
-    upload_folder = os.path.join("static", "uploads")
+    upload_folder = static_dir("uploads", base_dir=BASE_DIR)
     os.makedirs(upload_folder, exist_ok=True)
 
     if request.method == "POST":
@@ -1928,8 +2629,7 @@ def view_measurement(case_id, measurement_type):
 
     pts_orig = json.loads(side_result.landmarks_json)
 
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    image_path = os.path.join(base_dir, side_img.file_path)
+    image_path = resolve_project_path(side_img.file_path, BASE_DIR)
 
     measurement = analyze_measurement(image_path, pts_orig, measurement_type, case_id)
 
@@ -1940,44 +2640,9 @@ def view_measurement(case_id, measurement_type):
     )
 
 
-@app.route("/case/<int:case_id>/measurements")
-@login_required
-def view_all_measurements(case_id):
-    case = Case.query.get_or_404(case_id)
-
-    if case.doctor_id != session["user_id"]:
-        flash("You are not allowed to view this case.", "error")
-        return redirect(url_for("dashboard"))
-
-    side_result = Result.query.filter_by(case_id=case_id, view_type="SIDE").first()
-    side_img = Image.query.filter_by(case_id=case_id, view_type="SIDE").first()
-
-    if not side_result or not side_img:
-        flash("Side image or landmarks not found for this case.", "error")
-        return redirect(url_for("view_result", case_id=case_id))
-
-    pts_orig = json.loads(side_result.landmarks_json)
-
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    image_path = os.path.join(base_dir, side_img.file_path)
-
-    measurement_types = [
-        "nasiolabial",
-        "profile_convexity",
-        "total_facial_convexity",
-        "mentolabial"
-    ]
-
-    measurements = [
-        analyze_measurement(image_path, pts_orig, mtype, case_id)
-        for mtype in measurement_types
-    ]
-
-    return render_template(
-        "measurements_all.html",
-        case=case,
-        measurements=measurements
-    )
 
 if __name__ == "__main__":
+    with app.app_context():
+        _ensure_sqlite_columns()
+        _normalize_database_paths()
     app.run(debug=True)
