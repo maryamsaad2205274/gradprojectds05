@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Admin | Patients{% endblock %}
+
+{% block content %}
+
+<div class="dash-head">
+  <div>
+    <h1 class="dash-title">Patients</h1>
+    <p class="dash-sub">View and manage patient records from all doctors.</p>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="panel" style="margin-bottom:12px;">
+  <form method="GET" action="{{ url_for('admin_patients') }}" class="admin-search">
+    <div class="field">
+      <label>Search</label>
+      <input class="input" type="text" name="q" value="{{ q }}" placeholder="Search by patient code or doctor_id">
+    </div>
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Search</button>
+      <a class="btn btn--ghost" href="{{ url_for('admin_patients') }}">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- Create -->
+<div class="panel" style="margin-bottom:12px;">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Create Patient</h2>
+      <p class="panel__sub">Admin can create a patient under a doctor.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('admin_create_patient') }}">
+    <div class="row2">
+      <div class="field">
+        <label>Doctor ID</label>
+        <input class="input" type="text" name="doctor_id" placeholder="e.g., 5" required>
+      </div>
+
+      <div class="field">
+        <label>Patient Code</label>
+        <input class="input" type="text" name="patient_code" placeholder="e.g., 1001" required>
+      </div>
+    </div>
+
+    <div class="field">
+  <label>Patient Name</label>
+  <input class="input" type="text" name="name" placeholder="e.g., Jana" required>
+</div>
+
+
+ <div class="row2">
+  <div class="field">
+    <label>Age (optional)</label>
+    <input class="input" type="number" name="age" min="1" max="119" step="1" placeholder="e.g., 21">
+  </div>
+
+  <div class="field">
+    <label>Gender (optional)</label>
+    <select class="input" name="gender">
+      <option value="">—</option>
+      <option value="MALE">Male</option>
+      <option value="FEMALE">Female</option>
+    </select>
+  </div>
+</div>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Create</button>
+    </div>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">All Patients</h2>
+      <p class="panel__sub">Editable rows.</p>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="ap-grid ap-grid--head">
+    <div>ID</div>
+    <div>Patient Code</div>
+    <div>Name</div>
+    <div>Age</div>
+    <div>Gender</div>
+    <div>Doctor</div>
+    <div class="t-right">Actions</div>
+  </div>
+
+  <!-- Rows -->
+  {% for p in patients %}
+  <div class="ap-grid ap-grid--row">
+
+    <div class="t-muted">{{ p.id }}</div>
+
+    <form class="ap-form" method="POST"
+          action="{{ url_for('admin_update_patient', patient_id=p.id) }}">
+
+      <input class="input input--sm" type="text" name="patient_code"
+             value="{{ p.patient_code }}" required>
+
+      <input class="input input--sm" type="text" name="name"
+             value="{{ p.name or '' }}" required>
+
+      <input class="input input--sm" type="number" name="age"
+             value="{{ p.age if p.age is not none else '' }}"
+             min="1" max="119" step="1" placeholder="—">
+
+      <select class="input input--sm" name="gender">
+        <option value="" {% if not p.gender %}selected{% endif %}>—</option>
+        <option value="MALE" {% if (p.gender or '')|upper == 'MALE' %}selected{% endif %}>Male</option>
+        <option value="FEMALE" {% if (p.gender or '')|upper == 'FEMALE' %}selected{% endif %}>Female</option>
+      </select>
+
+      <div class="ap-doctor">
+        {% if p.doctor %}
+          <div class="ap-doctor__name">{{ p.doctor.name }}</div>
+          <div class="ap-doctor__meta">{{ p.doctor.email }} • id={{ p.doctor.id }}</div>
+        {% else %}
+          <div class="ap-doctor__meta">—</div>
+        {% endif %}
+      </div>
+
+      <div class="ap-actions">
+        <button class="btn btn--primary btn--sm" type="submit">Save</button>
+    </form>
+
+        <form method="POST" action="{{ url_for('admin_delete_patient', patient_id=p.id) }}">
+          <button class="btn btn--danger btn--sm" type="submit">Delete</button>
+        </form>
+      </div>
+
+  </div>
+  {% endfor %}
+</div>
+
+
+</div>
+
+{% endblock %}

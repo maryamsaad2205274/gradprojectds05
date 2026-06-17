@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Patient Cases{% endblock %}
+
+{% block content %}
+
+<div class="pc-head">
+  <div>
+    <h1 class="p-title">{{ patient.name }}</h1>
+    <p class="p-sub">Patient code <strong>{{ patient.patient_code }}</strong> — analysis history and photo status.</p>
+    {% if access_code %}
+      <p class="p-sub">Patient portal code: <code class="portal-code-tag">{{ access_code }}</code></p>
+    {% endif %}
+  </div>
+  <div class="pc-head__toolbar">
+    <div class="pc-head__toolbar-main">
+      <a class="btn btn--ghost btn--small" href="{{ url_for('patients') }}">← Patients</a>
+      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}?patient_id={{ patient.id }}">+ New analysis</a>
+    </div>
+  </div>
+</div>
+
+{% if cases and cases|length > 0 %}
+  <div class="cases-summary">
+    <div class="summary-card">
+      <div class="summary-title">Total Cases</div>
+      <div class="summary-value">{{ cases|length }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Needs Review</div>
+      <div class="summary-value">
+        {{ cases | selectattr("status", "equalto", "PENDING_REVIEW") | list | length }}
+      </div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Needs Re-upload</div>
+      <div class="summary-value">
+        {{ cases | selectattr("status", "equalto", "NEEDS_REUPLOAD") | list | length }}
+      </div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Reviewed</div>
+      <div class="summary-value">
+        {{ (cases | selectattr("status", "equalto", "REVIEWED") | list | length) + (cases | selectattr("status", "equalto", "REVIWED") | list | length) }}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="panel">
+  {% if case_summaries and case_summaries|length > 0 %}
+
+    <div class="cases-list">
+
+      {% for item in case_summaries %}
+        {% set c = item.case %}
+        <div class="case-card {% if c.status == 'PENDING_REVIEW' %}case-card--needs-review{% elif c.status == 'NEEDS_REUPLOAD' %}case-card--reupload{% endif %}">
+
+          <div class="case-card__left">
+            <div class="case-id">#{{ c.id }}</div>
+            <div class="case-meta-badges">
+              {% if c.case_type == "INITIAL" %}
+                <span class="badge badge--type-initial">Initial</span>
+              {% elif c.case_type == "FOLLOW_UP" %}
+                <span class="badge badge--type-followup">Follow-up</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="case-card__middle">
+            {% if c.status == "PENDING_REVIEW" %}
+              <span class="badge badge--status-pending">Pending review</span>
+            {% elif c.status == "NEEDS_REUPLOAD" %}
+              <span class="badge badge--status-reupload">Needs re-upload</span>
+            {% elif c.status == "REVIEWED" or c.status == "REVIWED" %}
+              <span class="badge badge--status-reviewed">Reviewed</span>
+            {% elif c.status == "FAILED" %}
+              <span class="badge badge--status-failed">Failed</span>
+            {% elif c.status == "PROCESSING" %}
+              <span class="badge badge--status-processing">Processing</span>
+            {% else %}
+              <span class="badge badge--status-default">{{ c.status }}</span>
+            {% endif %}
+
+            {% if item.views %}
+              <div class="case-view-tags">
+                {% for v in item.views %}
+                  <span class="case-view-tag case-view-tag--{{ v.status }}">{{ v.label }}: {{ v.status_label }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            {% if c.failure_message and c.status in ['NEEDS_REUPLOAD', 'FAILED'] %}
+              <div class="case-note case-note--warn">{{ c.failure_message }}</div>
+            {% elif c.doctor_comment %}
+              <div class="case-note">Doctor comment added</div>
+            {% else %}
+              <div class="case-note case-note--muted">No doctor comment yet</div>
+            {% endif %}
+          </div>
+
+          <div class="case-card__date">
+            <div class="case-date-label">Created</div>
+            <div class="case-date-value">{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+          </div>
+
+          <div class="case-card__actions" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+            <a class="btn btn--ghost btn--small" href="{{ url_for('view_result', case_id=c.id) }}">Open</a>
+            {% if c.status != "REVIEWED" and c.status != "REVIWED" %}
+              <a class="btn btn--primary btn--small" href="{{ url_for('review_case', case_id=c.id) }}">Review</a>
+            {% endif %}
+            <form method="POST" action="{{ url_for('delete_case', case_id=c.id) }}" style="margin:0;display:inline;" onsubmit="return confirm('Delete case #{{ c.id }} and all its analysis data? This cannot be undone.');">
+              <input type="hidden" name="next" value="{{ url_for('patient_cases', patient_id=patient.id) }}">
+              <button type="submit" class="btn btn--danger btn--small">Delete</button>
+            </form>
+          </div>
+
+        </div>
+      {% endfor %}
+
+    </div>
+
+  {% else %}
+    <div class="empty">
+      <div class="empty__title">No cases for this patient</div>
+      <div class="empty__text">Run a new analysis to create the first case record.</div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

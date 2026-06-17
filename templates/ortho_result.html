@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Ortho Analysis Result — DentAlign{% endblock %}
+{% block crumb %}Ortho Result{% endblock %}
+
+{% block extra_head %}
+<style>
+  .ortho-result-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 768px) {
+    .ortho-result-grid { grid-template-columns: 1fr; }
+  }
+  .ortho-overlay-img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border, #e2e8f0);
+  }
+  .diag-table { width:100%; border-collapse:collapse; }
+  .diag-table th, .diag-table td {
+    padding: .65rem .9rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    font-size: .93rem;
+  }
+  .diag-table th { font-weight:600; color:var(--muted-foreground,#64748b); }
+  .badge {
+    display:inline-block;
+    padding:.2rem .6rem;
+    border-radius:999px;
+    font-size:.78rem;
+    font-weight:600;
+    letter-spacing:.02em;
+  }
+  .badge--high   { background:#dcfce7; color:#15803d; }
+  .badge--medium { background:#fef9c3; color:#854d0e; }
+  .badge--low    { background:#fee2e2; color:#b91c1c; }
+  .disclaimer {
+    background: var(--muted, #f1f5f9);
+    border-left: 4px solid var(--primary, #6366f1);
+    padding: .85rem 1.1rem;
+    border-radius: 6px;
+    font-size: .85rem;
+    color: var(--muted-foreground, #64748b);
+    margin-top: 1.5rem;
+  }
+  .landmark-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    margin-top: .5rem;
+  }
+  .landmark-pill {
+    background: var(--muted, #f1f5f9);
+    border-radius: 4px;
+    padding: .2rem .5rem;
+    font-size: .78rem;
+    font-family: monospace;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="lov-page-title">Orthodontic AI Result</h1>
+<p class="lov-page-sub">
+  Analysis completed on {{ ortho_case.created_at.strftime('%d %b %Y, %H:%M') }}.
+  {% if ortho_case.patient %}
+    Patient: <strong>{{ ortho_case.patient.name }}</strong>
+  {% endif %}
+</p>
+
+<div class="ortho-result-grid">
+
+  <!-- Landmark overlay -->
+  <div class="lov-card">
+    <div class="lov-card__head">
+      <h2 class="lov-card__title">Landmark Detection (19 points)</h2>
+    </div>
+    <div class="lov-card__body" style="padding:1.25rem;">
+      {% if ortho_case.overlay_path %}
+        <img
+          class="ortho-overlay-img"
+          src="{{ url_for('static', filename=ortho_case.overlay_path | replace('static/', '') | replace('static\\', '') | replace('\\', '/')) }}"
+          alt="X-ray with landmarks">
+      {% else %}
+        <p style="color:var(--muted-foreground);">Overlay image not available.</p>
+      {% endif %}
+
+      <div class="landmark-list">
+        {% for lm in landmarks %}
+          <span class="landmark-pill">P{{ loop.index }}: {{ lm[0] }}, {{ lm[1] }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Diagnosis -->
+  <div class="lov-card">
+    <div class="lov-card__head">
+      <h2 class="lov-card__title">AI Diagnosis</h2>
+    </div>
+    <div class="lov-card__body" style="padding:1.25rem;">
+      <table class="diag-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Finding</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set labels = {
+            'skeletal_class': 'Skeletal Class',
+            'upper_lip':      'Upper Lip',
+            'lower_lip':      'Lower Lip',
+            'profile_class':  'Profile Class'
+          } %}
+          {% for key, label in labels.items() %}
+            {% if key in diagnosis %}
+              {% set d = diagnosis[key] %}
+              <tr>
+                <td><strong>{{ label }}</strong></td>
+                <td>{{ d.label }}</td>
+                <td>
+                  <span class="badge badge--{{ d.confidence_level | lower }}">
+                    {{ d.confidence_level }} {{ d.confidence }}%
+                  </span>
+                </td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if not diagnosis %}
+        <p style="color:var(--muted-foreground);">Diagnosis data not available.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<div class="disclaimer">
+  <strong>Clinical Disclaimer:</strong> This AI-generated analysis is intended as a decision-support tool only. It does not replace clinical examination, professional judgement, or formal orthodontic diagnosis. All findings must be reviewed and confirmed by a qualified orthodontist before clinical use.
+</div>
+
+<div style="margin-top:1.5rem; display:flex; gap:1rem; flex-wrap:wrap;">
+  <a href="{{ url_for('ortho_analysis') }}" class="btn btn--primary">New Analysis</a>
+  <a href="{{ url_for('dashboard') }}" class="btn btn--secondary">Dashboard</a>
+  {% if ortho_case.patient %}
+    <a href="{{ url_for('view_patient', patient_id=ortho_case.patient_id) }}" class="btn btn--secondary">View Patient</a>
+  {% endif %}
+</div>
+{% endblock %}

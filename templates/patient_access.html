@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patient Portal — DentAlign</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dentalign-theme.css') }}">
+</head>
+<body class="patient-access-body">
+
+  <main class="patient-access-page">
+    <div class="patient-access-wrap">
+      <a href="{{ url_for('login') }}" class="patient-access-back">← Back to clinician sign-in</a>
+
+      <div class="patient-access-card">
+        <header class="patient-portal-brand patient-portal-brand--centered">
+          <img
+            class="patient-portal-brand__logo"
+            src="{{ url_for('static', filename='images/dentalign-logo.png') }}"
+            alt="DentAlign"
+            width="52"
+            height="52"
+          />
+          <div class="patient-portal-brand__text">
+            <span class="patient-portal-brand__name">DentAlign</span>
+            <span class="patient-portal-brand__sub">Orthodontic Suite · For patients</span>
+          </div>
+        </header>
+
+        <h1 class="patient-access-title">Enter your secure access code</h1>
+        <p class="patient-access-sub">
+          Your doctor gave you a code to upload follow-up photos and view progress.
+        </p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="patient-access-messages">
+              {% for category, msg in messages %}
+                <div class="auth-msg auth-msg--{{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" class="patient-access-form">
+          <label class="patient-access-label" for="code">Access code</label>
+          <input
+            id="code"
+            type="text"
+            name="code"
+            class="patient-access-input"
+            placeholder="e.g. AB12CD34EF"
+            autocomplete="one-time-code"
+            autocapitalize="characters"
+            required
+          >
+          <button class="btn btn--primary patient-access-btn" type="submit">
+            Access my records
+          </button>
+        </form>
+
+        <p class="patient-access-foot">
+          Don't have a code? Contact your clinic.
+        </p>
+      </div>
+    </div>
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patient Portal — {{ patient.name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dentalign-theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/lovable-pages.css') }}">
+</head>
+<body class="portal-shell">
+
+  <header class="portal-topbar">
+    <div class="patient-portal-brand">
+      <img
+        class="patient-portal-brand__logo"
+        src="{{ url_for('static', filename='images/dentalign-logo.png') }}"
+        alt="DentAlign"
+        width="44"
+        height="44"
+      />
+      <div class="patient-portal-brand__text">
+        <span class="patient-portal-brand__name">DentAlign</span>
+        <span class="patient-portal-brand__sub">Orthodontic Suite · Patient portal</span>
+      </div>
+    </div>
+    <a href="{{ url_for('patient_access') }}" class="btn btn--ghost btn--small">Sign out</a>
+  </header>
+
+  <main class="portal-main">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div style="margin-bottom:16px;">
+          {% for category, msg in messages %}
+            <div class="msg {{ category }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <span class="portal-session-badge">Secure session · portal access</span>
+    <h1 class="portal-title" style="margin:0 0 6px;font-size:1.75rem;font-weight:700;">Hello, {{ patient.name }}</h1>
+    <p class="portal-subtitle" style="margin:0 0 24px;color:var(--muted-foreground);font-size:0.875rem;">
+      Your orthodontic treatment with {{ doctor.name if doctor else 'your doctor' }}
+    </p>
+
+    {% if next_appointment %}
+    <div class="lov-card" style="border-color:oklch(0.55 0.18 245 / 0.25);background:var(--gradient-soft);">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;">
+        <div style="display:flex;gap:14px;align-items:center;">
+          <div style="width:48px;height:48px;border-radius:12px;background:var(--gradient-primary);color:white;display:flex;align-items:center;justify-content:center;">📅</div>
+          <div>
+            <p style="margin:0;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted-foreground);">Your next appointment</p>
+            <p style="margin:4px 0 0;font-size:1.1rem;font-weight:700;">
+              {{ next_appointment.appointment_date.strftime('%b %d, %Y') }} · {{ next_appointment.appointment_time.strftime('%I:%M %p') }}
+            </p>
+            <p style="margin:4px 0 0;font-size:0.8rem;color:var(--muted-foreground);">Reason: {{ next_appointment.reason }}</p>
+          </div>
+        </div>
+        <span class="patient-privacy-badge">
+          {% if next_appointment.source == 'patient' %}Booked by you{% else %}Scheduled by {{ doctor.name if doctor else 'your doctor' }}{% endif %}
+        </span>
+      </div>
+    </div>
+    {% elif can_book_followup %}
+    <div class="lov-card" style="border-color:oklch(0.55 0.18 245 / 0.35);">
+      <h2 class="lov-card__title">Book your follow-up visit</h2>
+      <p class="lov-card__sub">Your doctor has asked to see you again. Choose an available day and time below.</p>
+      {% if latest_case and latest_case.follow_up_requested and latest_case.doctor_comment %}
+      <div style="margin:12px 0;padding:12px;border-radius:8px;background:var(--muted);font-size:0.85rem;">
+        <strong>From your doctor:</strong> {{ latest_case.doctor_comment }}
+      </div>
+      {% endif %}
+
+      <form method="GET" action="{{ url_for('patient_portal', code=code_row.code) }}" style="margin-bottom:16px;">
+        <div class="lov-field">
+          <label for="book_date">Choose a day</label>
+          <select name="book_date" id="book_date" class="input" onchange="this.form.submit()">
+            <option value="">— Select a date —</option>
+            {% for d in bookable_dates %}
+              <option value="{{ d.isoformat() }}" {% if selected_book_date == d.isoformat() %}selected{% endif %}>
+                {{ d.strftime('%A, %b %d, %Y') }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+
+      {% if selected_book_date and book_slots %}
+        <p style="font-size:0.8rem;font-weight:600;margin:0 0 10px;">Available times</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          {% for slot in book_slots %}
+            {% if slot.available %}
+            <form method="POST" action="{{ url_for('patient_book_appointment', code=code_row.code) }}" style="margin:0;">
+              <input type="hidden" name="appointment_date" value="{{ selected_book_date }}">
+              <input type="hidden" name="appointment_time" value="{{ slot.time.strftime('%H:%M') }}">
+              <button type="submit" class="btn btn--primary btn--small">{{ slot.label }}</button>
+            </form>
+            {% else %}
+            <span class="btn btn--ghost btn--small" style="opacity:0.45;cursor:not-allowed;">{{ slot.label }} (taken)</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% elif selected_book_date %}
+        <p style="font-size:0.85rem;color:var(--muted-foreground);">No open slots on this day. Please pick another date.</p>
+      {% endif %}
+    </div>
+    {% elif latest_case and latest_case.follow_up_requested %}
+    <div class="lov-card">
+      <h2 class="lov-card__title">Follow-up requested</h2>
+      <p class="lov-card__sub">Your doctor would like to see you again. Online booking will open when appointment times are available.</p>
+      {% if latest_case.doctor_comment %}
+      <p style="margin-top:12px;font-size:0.9rem;">{{ latest_case.doctor_comment }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="portal-stat-grid">
+      <div class="portal-stat-card">
+        <div style="color:var(--primary);margin-bottom:8px;">📅</div>
+        <div class="portal-stat-card__label">Treatment progress</div>
+        <div class="portal-stat-card__value">{{ submissions_count }} submission{{ 's' if submissions_count != 1 else '' }}</div>
+      </div>
+      <div class="portal-stat-card">
+        <div style="color:var(--primary);margin-bottom:8px;">📅</div>
+        <div class="portal-stat-card__label">Last visit</div>
+        <div class="portal-stat-card__value">{{ last_visit.strftime('%b %d, %Y') if last_visit else '—' }}</div>
+      </div>
+      <div class="portal-stat-card">
+        <div style="color:var(--primary);margin-bottom:8px;">📄</div>
+        <div class="portal-stat-card__label">Reports available</div>
+        <div class="portal-stat-card__value">{{ reports_count }} document{{ 's' if reports_count != 1 else '' }}</div>
+      </div>
+    </div>
+
+    <div class="lov-card">
+      <div class="lov-card__head">
+        <div>
+          <h2 class="lov-card__title">Send your progress photos</h2>
+          <p class="lov-card__sub">Your clinic uses these for your next check-up. Please read the tips below first.</p>
+        </div>
+        <span class="patient-privacy-badge">2 photos optional</span>
+      </div>
+
+      <div class="portal-tips">
+        <p style="margin:0;font-weight:600;font-size:0.85rem;color:var(--primary);">How to take a good photo</p>
+        <ul>
+          <li><span>☀</span><span>Take the photo in a well-lit room — natural daylight works best.</span></li>
+          <li><span>📷</span><span>Keep the camera centered and at eye level.</span></li>
+          <li><span>👤</span><span>Face neutral, lips relaxed, hair pulled away from your face.</span></li>
+          <li><span>✓</span><span>Plain background. Remove glasses and face masks.</span></li>
+        </ul>
+      </div>
+
+      <form method="POST" action="{{ url_for('patient_upload_progress', code=code_row.code) }}" enctype="multipart/form-data">
+        <div class="lov-upload-row">
+          <div>
+            <p class="lov-upload-zone-label">Front view</p>
+            <p class="lov-upload-zone-hint">Look straight at the camera, both ears visible.</p>
+            <div class="photo-drop">
+              <div class="photo-drop__icon">+</div>
+              <p style="font-size:12px;font-weight:600;">Tap or drop photo</p>
+              <input type="file" name="front_ns" accept="image/*,.jpg,.jpeg,.png">
+            </div>
+          </div>
+          <div>
+            <p class="lov-upload-zone-label">Side view (profile)</p>
+            <p class="lov-upload-zone-hint">Turn head 90° — chin level.</p>
+            <div class="photo-drop">
+              <div class="photo-drop__icon">+</div>
+              <p style="font-size:12px;font-weight:600;">Tap or drop photo</p>
+              <input type="file" name="side" accept="image/*,.jpg,.jpeg,.png">
+            </div>
+          </div>
+        </div>
+        <div class="portal-send-bar">
+          <p style="margin:0;font-size:0.75rem;color:var(--muted-foreground);max-width:280px;">Photos are encrypted and shared only with your clinical team.</p>
+          <button type="submit" class="btn btn--primary">☁ Send to my clinic</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="lov-card">
+      <div class="lov-card__head">
+        <h2 class="lov-card__title">💬 Ask {{ doctor.name if doctor else 'your doctor' }} a question</h2>
+      </div>
+      <p class="lov-card__sub">Short questions only — your doctor will see this on their dashboard. For emergencies please call the clinic.</p>
+      <form method="POST" action="{{ url_for('patient_send_message', code=code_row.code) }}">
+        <textarea class="patient-notes-textarea" name="question" maxlength="280" placeholder="e.g. My elastics keep snapping after meals — should I switch sizes?"></textarea>
+        <div class="portal-send-bar">
+          <span id="charCount" style="font-size:0.75rem;color:var(--muted-foreground);">0/280 characters</span>
+          <button type="submit" class="btn btn--primary">✈ Send to my doctor</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="lov-card">
+      <h2 class="lov-card__title" style="margin-bottom:16px;">Your reports</h2>
+      {% if portal_reports and portal_reports|length > 0 %}
+        {% for item in portal_reports %}
+          <div class="portal-report-row">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:36px;height:36px;border-radius:10px;background:oklch(0.55 0.18 245 / 0.1);color:var(--primary);display:flex;align-items:center;justify-content:center;">📄</div>
+              <div>
+                <p style="margin:0;font-weight:600;font-size:0.875rem;">{{ item.title }}</p>
+                <p style="margin:2px 0 0;font-size:0.75rem;color:var(--muted-foreground);">{{ item.case.created_at.strftime('%b %d, %Y') }}</p>
+              </div>
+            </div>
+            <a class="btn btn--ghost btn--small" href="{{ url_for('patient_portal_report', code=code_row.code, case_id=item.case.id) }}">↓ PDF</a>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p style="font-size:0.875rem;color:var(--muted-foreground);">No PDF reports available yet. Your doctor will publish reports after reviewing your cases.</p>
+      {% endif %}
+    </div>
+
+    {% if latest_case %}
+    <div class="lov-card">
+      <h2 class="lov-card__title">Latest doctor feedback</h2>
+      <p class="lov-card__sub">Case #{{ latest_case.id }} · {{ status_label(latest_case.status) }}</p>
+      {% if latest_case.doctor_comment %}
+        <p style="margin-top:12px;font-size:0.9rem;">{{ latest_case.doctor_comment }}</p>
+      {% else %}
+        <p style="margin-top:12px;font-size:0.875rem;color:var(--muted-foreground);">No doctor notes yet — your clinic will review your photos soon.</p>
+      {% endif %}
+      {% if latest_case.status == 'NEEDS_REUPLOAD' or latest_case.status == 'FAILED' %}
+        <div class="portal-alert portal-alert--warn" style="margin-top:12px;padding:12px;border-radius:8px;background:oklch(0.75 0.15 60 / 0.12);">
+          {{ latest_case.failure_message or friendly_fail }}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="lov-card">
+      <div class="lov-card__head">
+        <h2 class="lov-card__title">Your progress history</h2>
+        <span class="patient-privacy-badge">{{ cases|length }} submission{{ 's' if cases|length != 1 else '' }}</span>
+      </div>
+      {% if cases %}
+        {% for case in cases %}
+          <div style="padding:12px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+              <strong>Submission #{{ case.id }}</strong>
+              <span class="dash-status dash-status--default" style="font-size:0.65rem;">{{ status_label(case.status) }}</span>
+            </div>
+            <p style="margin:4px 0 0;font-size:0.75rem;color:var(--muted-foreground);">
+              Case date: {{ case.display_case_date.strftime('%b %d, %Y') }}
+            </p>
+            {% if case.follow_up_requested %}
+              <p style="margin:6px 0 0;font-size:0.8rem;color:var(--primary);font-weight:600;">↻ Follow-up visit requested by your doctor</p>
+            {% endif %}
+            {% if case.doctor_comment %}
+              <p style="margin:8px 0 0;font-size:0.85rem;padding:10px;background:var(--muted);border-radius:8px;">{{ case.doctor_comment }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <p style="color:var(--muted-foreground);font-size:0.875rem;">No submissions yet.</p>
+      {% endif %}
+    </div>
+
+  </main>
+
+  <script src="{{ url_for('static', filename='js/dentalign-ui.js') }}"></script>
+  <script>
+  (function () {
+    var ta = document.querySelector('textarea[name="question"]');
+    var counter = document.getElementById("charCount");
+    if (ta && counter) {
+      ta.addEventListener("input", function () {
+        counter.textContent = ta.value.length + "/280 characters";
+      });
+    }
+  })();
+  </script>
+</body>
+</html>

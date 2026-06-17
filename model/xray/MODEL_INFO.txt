@@ -1,0 +1,17 @@
+DentAlign X-ray Model Export
+============================
+
+HRNet landmark model:
+- best_hrnet_19_landmarks.pth
+- Detects 19 landmarks
+- Input image size: 384 x 384
+- Heatmap size: 96 x 96
+
+Diagnosis models:
+- 11 XGBoost diagnosis models
+- 217 landmark-derived features
+- Models trained using HRNet-predicted landmarks
+
+Excluded diagnoses:
+- Skeletal Maxilla
+- Lower Lip Position

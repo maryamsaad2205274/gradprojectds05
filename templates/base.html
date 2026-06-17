@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}DentAlign{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dentalign-theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/lovable-pages.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <div class="app">
+
+    <aside class="sidebar" id="appSidebar">
+      <div class="sidebar__brand">
+        <img
+          class="sidebar__logo"
+          src="{{ url_for('static', filename='images/dentalign-logo.png') }}"
+          alt=""
+          width="44"
+          height="44"
+        />
+        {% if session.get("role") == "ADMIN" %}
+          <div class="sidebar__brand-text">
+            <span>DentAlign Admin</span>
+            <div class="sidebar__brand-sub">Orthodontic Suite</div>
+          </div>
+        {% else %}
+          <div class="sidebar__brand-text">
+            <span>DentAlign</span>
+            <div class="sidebar__brand-sub">Orthodontic Suite</div>
+          </div>
+        {% endif %}
+      </div>
+
+      <nav class="nav">
+        {% if session.get("role") == "ADMIN" %}
+          <div class="nav__section-label">Admin</div>
+          <a class="nav__item {% if active=='admin_dashboard' %}is-active{% endif %}"
+             href="{{ url_for('admin_dashboard') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            </span>
+            Admin Dashboard
+          </a>
+          <a class="nav__item {% if active=='admin_users' %}is-active{% endif %}"
+             href="{{ url_for('admin_users') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            Users
+          </a>
+          <a class="nav__item {% if active=='admin_patients' %}is-active{% endif %}"
+             href="{{ url_for('admin_patients') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            Patients
+          </a>
+        {% else %}
+          <div class="nav__section-label">Workspace</div>
+          <a class="nav__item {% if active=='dashboard' %}is-active{% endif %}"
+             href="{{ url_for('dashboard') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            </span>
+            Dashboard
+          </a>
+          <a class="nav__item {% if active=='patients' %}is-active{% endif %}"
+             href="{{ url_for('patients') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            Patients
+          </a>
+          <a class="nav__item {% if active=='appointments' %}is-active{% endif %}"
+             href="{{ url_for('appointments') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </span>
+            Appointments
+          </a>
+          <div class="nav__section-label" style="margin-top:8px;">Analysis</div>
+          <a class="nav__item {% if active=='new_analysis' %}is-active{% endif %}"
+             href="{{ url_for('new_analysis') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            </span>
+            New Analysis
+          </a>
+          <a class="nav__item {% if active in ['cases','analysis'] %}is-active{% endif %}"
+             href="{{ url_for('history') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </span>
+            Case History
+          </a>
+          <a class="nav__item {% if active=='reports' %}is-active{% endif %}"
+             href="{{ url_for('reports') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </span>
+            Reports
+          </a>
+          <div class="nav__section-label" style="margin-top:8px;">Info</div>
+          <a class="nav__item {% if active=='about' %}is-active{% endif %}" href="{{ url_for('about') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </span>
+            About
+          </a>
+          <a class="nav__item {% if active=='contact' %}is-active{% endif %}" href="{{ url_for('contact') }}">
+            <span class="nav__icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </span>
+            Contact
+          </a>
+        {% endif %}
+      </nav>
+
+      <div class="sidebar__footer">
+        <div class="userpill">
+          <div class="userpill__avatar">{{ (name or "D")[0] }}</div>
+          <div class="userpill__meta">
+            <div class="userpill__name">{{ name or "Doctor" }}</div>
+            <div class="userpill__role">{{ session.get("role","DOCTOR") }}</div>
+          </div>
+        </div>
+        <a class="logout" href="{{ url_for('logout') }}">Sign out</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar__left" style="display:flex;align-items:center;">
+          <button type="button" class="da-sidebar-toggle" id="daSidebarToggle" aria-label="Menu">☰</button>
+          <div class="crumb">
+            DentAlign / <span style="color:var(--foreground);">{% block crumb %}{{ page_crumb or 'Dashboard' }}{% endblock %}</span>
+          </div>
+        </div>
+        <div class="topbar__right">
+          <div class="search">
+            <form method="GET" action="{{ url_for('patients') if session.get('role') != 'ADMIN' else url_for('admin_patients') }}" style="position:relative;">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted-foreground);pointer-events:none;display:flex;align-items:center;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </span>
+              <input name="q" placeholder="Search patients…" value="{{ request.args.get('q','') }}" style="padding-left:30px;" />
+            </form>
+          </div>
+          <div class="topbar__menu">
+            <button class="iconbtn" type="button" id="settingsBtn" aria-label="Settings">⚙</button>
+            <div class="menu hidden" id="settingsMenu">
+              <a class="menu__item" href="{{ url_for('profile') }}">Profile</a>
+              <a class="menu__item" href="{{ url_for('calibration') }}">Calibration tool</a>
+              <a class="menu__item" href="{{ url_for('logout') }}">Sign out</a>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-wrap">
+              {% for category, msg in messages %}
+                <div class="flash flash--{{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+      </section>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/dentalign-ui.js') }}"></script>
+  <script>
+  const btn = document.getElementById("settingsBtn");
+  const menu = document.getElementById("settingsMenu");
+  if (btn && menu) {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.classList.toggle("hidden");
+    });
+    window.addEventListener("click", () => menu.classList.add("hidden"));
+  }
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

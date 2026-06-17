@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Model Health Check{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <h1 class="case-title">Model Health Check</h1>
+  <p class="case-sub case-muted">
+    Verifies side-view and frontal non-smile weights load and can run inference.
+  </p>
+  <p><b>Model folder:</b> {{ report.model_dir }}</p>
+  <p><b>Device:</b> {{ report.device }}</p>
+  <p><b>Files:</b>
+    {% if report.files_in_model_dir %}
+      {{ report.files_in_model_dir | join(', ') }}
+    {% else %}
+      <span class="case-note case-note--warn">No .pth files found</span>
+    {% endif %}
+  </p>
+</div>
+
+{% for check in report.checks %}
+<div class="panel {% if check.ok %}panel--ok{% elif check.errors %}panel--failed-upload{% endif %}">
+  <h2 class="panel__title">{{ check.label }} ({{ check.variant }})</h2>
+  {% if check.weight_file %}
+  <p class="panel__sub">Weights: {{ check.weight_file }} · Architecture: {{ check.architecture }} · Expected landmarks: {{ check.expected_landmarks }}</p>
+  {% endif %}
+  {% if check.sample_image %}
+  <p class="panel__sub">Sample image: {{ check.sample_image }}{% if check.landmark_count is defined %} · Landmark count: {{ check.landmark_count }}{% endif %}</p>
+  {% endif %}
+  <ul class="health-msgs">
+    {% for msg in check.messages %}
+    <li class="health-msgs__ok">{{ msg }}</li>
+    {% endfor %}
+    {% for err in check.errors %}
+    <li class="health-msgs__err">{{ err }}</li>
+    {% endfor %}
+  </ul>
+  <p>
+    <span class="badge {% if check.ok %}badge--status-reviewed{% else %}badge--status-failed{% endif %}">
+      {% if check.ok %}PASS{% else %}FAIL{% endif %}
+    </span>
+  </p>
+</div>
+{% endfor %}
+
+<div class="case-actions">
+  <a class="btn btn--ghost" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+  <a class="btn btn--primary" href="{{ url_for('model_health') }}">Run again</a>
+</div>
+{% endblock %}

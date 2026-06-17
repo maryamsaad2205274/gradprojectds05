@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+  <h2>{{ measurement.title }}</h2>
+  <p>Case #{{ case.id }}</p>
+</div>
+
+<div class="measurement-page">
+  <div class="measurement-image-card">
+    <img src="{{ measurement.image_url }}" alt="{{ measurement.title }}" class="measurement-main-image">
+  </div>
+
+  <div class="measurement-info-card">
+    <h3>Angle Value</h3>
+    <p class="measurement-angle">{{ measurement.angle }}°</p>
+
+    <h3>Status</h3>
+    <p>{{ measurement.status }}</p>
+
+    <h3>Meaning</h3>
+    <p>{{ measurement.meaning }}</p>
+
+    <h3>Treatment Consideration</h3>
+    <p>{{ measurement.treatment }}</p>
+
+    <a href="{{ url_for('view_result', case_id=case.id) }}" class="btn-secondary">Back to Result</a>
+  </div>
+</div>
+{% endblock %}

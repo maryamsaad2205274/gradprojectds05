@@ -1,0 +1,2627 @@
+﻿{% extends "base.html" %}
+{% block title %}Analysis — Case #{{ case.id }} — DentAlign{% endblock %}
+{% block crumb %}Analysis{% endblock %}
+
+{% block content %}
+{% set show_side = side_overlay %}
+{% set show_front = front_ns_overlay %}
+
+<div class="analysis-header">
+  <div class="analysis-header__top">
+    <div>
+      <h1 class="analysis-patient-name">
+        {% if patient %}{{ patient.name }}{% else %}Case #{{ case.id }}{% endif %}
+        {% if patient %}<span style="font-weight:500;color:var(--muted-foreground);font-size:1.25rem;"> · {{ patient.patient_code }}</span>{% endif %}
+      </h1>
+      <p class="analysis-patient-sub">
+        {{ type_line }}{% if age_line %} · {{ age_line }}{% endif %}{% if gender_line %} · {{ gender_line }}{% endif %}
+        · Case date {{ case.display_case_date.strftime('%b %d, %Y') }}
+      </p>
+    </div>
+    <div class="da-action-bar">
+      <div class="da-action-bar__nav">
+        <a class="btn btn--ghost btn--small" href="{{ url_for('dashboard') }}">⌂ Dashboard</a>
+        {% if patient %}
+        <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=patient.id) }}">← {{ patient.name }}</a>
+        <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">All cases</a>
+        {% else %}
+        <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">← All cases</a>
+        {% endif %}
+      </div>
+      <div class="da-action-bar__primary">
+        {% if case.status not in ['NEEDS_REUPLOAD', 'FAILED'] %}
+        <a class="btn btn--primary btn--small" href="{{ url_for('download_report', case_id=case.id) }}">↓ Download report</a>
+        {% endif %}
+        <a class="btn btn--ghost btn--small" href="{{ url_for('new_analysis') }}{% if patient %}?patient_id={{ patient.id }}{% endif %}">↑ New Analysis</a>
+        <a class="btn btn--ghost btn--small" href="{{ url_for('review_case', case_id=case.id) }}">💬 Review</a>
+      </div>
+      <div class="da-action-bar__danger">
+        <form method="POST" action="{{ url_for('delete_case', case_id=case.id) }}" style="margin:0;" onsubmit="return confirm('Delete case #{{ case.id }} and all its images, results, and reports? This cannot be undone.');">
+          {% if patient %}
+          <input type="hidden" name="next" value="{{ url_for('patient_cases', patient_id=patient.id) }}">
+          {% else %}
+          <input type="hidden" name="next" value="{{ url_for('history') }}">
+          {% endif %}
+          <button type="submit" class="btn btn--danger btn--small">🗑 Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ── Analysis Summary Card ─────────────────────────────── #}
+<div class="case-summary-card">
+  <p class="case-summary-card__title">Analysis summary</p>
+  <div class="case-summary-chips">
+    {# Side #}
+    {% if side_overlay %}
+    <span class="case-summary-chip case-summary-chip--ok">✓ Side view analyzed</span>
+    {% elif side_upload_url %}
+    <span class="case-summary-chip case-summary-chip--fail">✗ Side view failed</span>
+    {% else %}
+    <span class="case-summary-chip case-summary-chip--muted">— Side not uploaded</span>
+    {% endif %}
+
+    {# Front #}
+    {% if front_ns_overlay %}
+    <span class="case-summary-chip case-summary-chip--ok">✓ Front view analyzed</span>
+    {% elif front_upload_url %}
+    <span class="case-summary-chip case-summary-chip--fail">✗ Front view failed</span>
+    {% else %}
+    <span class="case-summary-chip case-summary-chip--muted">— Front not uploaded</span>
+    {% endif %}
+
+    {# X-Ray AI #}
+    {% if ortho_status == "DONE" and ortho_diagnosis %}
+    <span class="case-summary-chip case-summary-chip--ok">✓ X-Ray AI complete</span>
+    {% elif ortho_status == "FAILED" %}
+    <span class="case-summary-chip case-summary-chip--fail">✗ X-Ray AI failed</span>
+    {% elif ortho_status %}
+    <span class="case-summary-chip case-summary-chip--warn">⏳ X-Ray AI pending</span>
+    {% else %}
+    <button type="button" class="case-summary-chip case-summary-chip--muted"
+            style="border:none;cursor:pointer;background:inherit;"
+            onclick="window.switchAnalysisTab && window.switchAnalysisTab('xray'); document.getElementById('tab-panel-xray')?.scrollIntoView({behavior:'smooth',block:'start'});">
+      + Add X-Ray →
+    </button>
+    {% endif %}
+
+    {# Doctor review #}
+    {% if ortho_rec and ortho_rec.reviewed %}
+    <span class="case-summary-chip case-summary-chip--ok">✓ Doctor reviewed</span>
+    {% elif ortho_rec and ortho_status == "DONE" %}
+    <span class="case-summary-chip case-summary-chip--warn">! Awaiting doctor review</span>
+    {% endif %}
+  </div>
+
+  {# X-ray quick findings — supports schema_version=1 (legacy) and schema_version=2 (new) #}
+  {% if ortho_diagnosis %}
+    {% set _primary = ortho_diagnosis.get('primary', {}) %}
+  <div class="case-summary-findings">
+    <span class="case-summary-findings__label">X-Ray AI findings{% if ortho_diagnosis.get('is_legacy') %} <em style="font-weight:400;font-size:.7rem;">(legacy)</em>{% endif %}</span>
+    {% for key, entry in _primary.items() %}
+    <span class="case-summary-finding"><strong>{{ entry.display_name }}</strong> {{ entry.label }}</span>
+    {% endfor %}
+    <button type="button" class="case-summary-xray-link" onclick="window.switchAnalysisTab('xray')">View X-Ray AI →</button>
+  </div>
+  {% if low_conf %}
+  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.65rem;padding:.5rem .75rem;background:#fef9c3;border:1px solid #fde68a;border-radius:7px;font-size:.79rem;color:#92400e;">
+    <span>⚠</span>
+    <span><strong>Low confidence</strong> on one or more findings. Review carefully before clinical use.</span>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+<div class="lov-tabs" role="tablist">
+  <button type="button" class="lov-tab is-active" data-tab="side">Side Analysis{% if side_overlay and not side_diag %} <span style="font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:999px;background:oklch(0.75 0.15 245 / 0.18);color:oklch(0.45 0.18 245);vertical-align:middle;margin-left:4px;">Run AI</span>{% endif %}</button>
+  <button type="button" class="lov-tab" data-tab="front">Front Analysis</button>
+  <button type="button" class="lov-tab" data-tab="xray">🦷 X-Ray AI{% if not (ortho_diagnosis or ortho_status) %} <span style="font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:999px;background:oklch(0.75 0.15 60 / 0.2);color:oklch(0.45 0.12 60);vertical-align:middle;margin-left:4px;">Add</span>{% endif %}</button>
+  <button type="button" class="lov-tab" data-tab="summary">Clinical Summary</button>
+</div>
+
+<div id="tab-panel-side" class="tab-panel is-active">
+
+{% if case.status == 'NEEDS_REUPLOAD' or case.status == 'FAILED' %}
+<div class="case-alert case-alert--warn">
+  {{ case.failure_message or friendly_fail }}
+</div>
+{% endif %}
+
+{% if case.status == 'NEEDS_REUPLOAD' or case.status == 'FAILED' %}
+<div class="case-alert case-alert--warn">
+  {{ case.failure_message or friendly_fail }}
+</div>
+{% endif %}
+
+{% if side_upload_url and not show_side %}
+<div class="panel panel--failed-upload">
+  <h2 class="panel__title">Side view photo</h2>
+  <p class="panel__sub">Uploaded but could not be analyzed.</p>
+  <div class="imgwrap"><img class="result-img" src="{{ side_upload_url }}" alt="Uploaded side photo"></div>
+  <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
+</div>
+{% elif show_side %}
+<!-- SIDE -->
+<div class="panel panel--analysis">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Side view analysis</h2>
+      <p class="panel__sub">Landmark overlay with cephalometric-style angles</p>
+    </div>
+    <button class="btn btn--ghost" type="button" onclick="openEditor('SIDE')"
+            style="padding:4px 10px;font-size:.75rem;border-radius:7px;white-space:nowrap;">
+      ✎ Adjust landmarks
+    </button>
+  </div>
+
+  <div id="sideMeasurementViewer" class="measurement-viewer">
+    <div class="imgwrap imgwrap--meas">
+      <img class="result-img" data-measure-image src="{{ url_for('static', filename=side_overlay) }}" alt="Side overlay">
+      <canvas class="meas-canvas" data-measure-canvas></canvas>
+    </div>
+
+    <div class="measurement-tools">
+      <div class="measurement-tools__row">
+        <label class="front-measure-label" for="sideMeasurementSelect">Measurement overlay</label>
+        <select id="sideMeasurementSelect" class="front-measure-select" data-measure-select></select>
+      </div>
+
+      <div class="measurement-card" data-measure-card></div>
+
+      <details class="calib-collapse">
+        <summary class="calib-collapse__toggle">📐 Calibration &amp; distance tools</summary>
+        <div class="calib-collapse__body">
+          <div class="measurement-tools__row">
+            <label class="front-measure-label" for="sideRealDistance">Known distance (mm)</label>
+            <input id="sideRealDistance" class="measurement-input" type="number" min="0.01" step="0.01" placeholder="e.g. 10" data-real-distance>
+          </div>
+          <div class="measurement-tools__row" style="flex-wrap:wrap;gap:.4rem;">
+            <button class="btn btn--ghost measurement-btn" type="button" data-calibrate-button>Start Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-save-calibration>Save Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-measure-button>Measure Distance</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-calibration>Reset Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-measurement>Reset Measurement</button>
+          </div>
+          <div class="measurement-scale">
+            <span data-scale-text>No calibration yet</span>
+            <span data-calibration-status>Click "Start Calibration"</span>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  {# ── Side landmark confidence ─────────────────────────────────────── #}
+  {% if side_confidence and side_confidence|length > 0 %}
+  <div class="lm-conf-section" id="sideConfSection">
+    <div class="lm-conf-title" id="sideConfToggle" onclick="toggleConf('side')" title="Show/hide confidence scores">
+      <span class="lm-conf-title__icon">📊</span>
+      <span>Landmark detection confidence</span>
+      <span class="lm-conf-title__chevron">▼</span>
+    </div>
+    <div class="lm-conf-grid" id="sideConfGrid">
+      {% for conf in side_confidence %}
+      {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
+      <div class="lm-conf-cell lm-conf-cell--{{ tier }}">
+        <span class="lm-conf-cell__label">Landmark {{ loop.index }}</span>
+        <span class="lm-conf-cell__pct">{{ "%.1f"|format(conf) }}%</span>
+        <div class="lm-conf-bar-track">
+          <div class="lm-conf-bar-fill" style="width:{{ conf }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="lm-conf-note">
+      🟢 ≥ 75% high · 🟡 50–74% moderate · 🔴 &lt; 50% low.
+      Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+{% if side_measurement_cards %}
+<section class="meas-section" style="margin-top:1.5rem;">
+  <h3 class="meas-section__title">Side view measurements</h3>
+  <p class="meas-section__sub">Cephalometric-style profile angles. Click a card to highlight the measurement on the image above.</p>
+  <div class="meas-grid">
+    {% for card in side_measurement_cards %}
+    <button type="button" class="meas-metric-card" data-view="side" data-vis-key="{{ card.vis_key }}" aria-pressed="false">
+      <span class="meas-metric-card__name">{{ card.name }}</span>
+      <span class="meas-metric-card__value">{{ card.value }}</span>
+      <span class="meas-metric-card__norm">Reference: {{ card.normal_range }}</span>
+      <div class="meas-metric-card__foot">
+        <span class="meas-badge meas-badge--{{ card.badge }}">{{ card.status_label }}</span>
+        {% if card.note %}<span class="meas-metric-card__note">{{ card.note }}</span>{% endif %}
+      </div>
+      <span class="meas-metric-card__view-hint">↗ View on image</span>
+    </button>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ── Diagnosis section ────────────────────────────────────────────────────── #}
+<style>
+  /* ── Diagnosis panel ──────────────────────────────────────── */
+  .diag-shell { display:flex; flex-direction:column; gap:1.5rem; }
+
+  .diag-disclaimer {
+    display:flex; align-items:flex-start; gap:.6rem;
+    background:#f1f5f9; border-left:3px solid #6366f1;
+    border-radius:0 6px 6px 0; padding:.65rem 1rem;
+    font-size:.82rem; color:#475569;
+  }
+
+  /* ── Growth stage selector ────────────────────────────────── */
+  .diag-form-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:12px; padding:1.1rem 1.25rem;
+  }
+  .diag-form-card__title {
+    font-size:.8rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    margin:0 0 .75rem; text-transform:uppercase; letter-spacing:.06em;
+  }
+  .diag-growth-row {
+    display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+  }
+  .diag-growth-btn {
+    flex:1; min-width:110px; padding:.55rem 1rem;
+    border:2px solid var(--border,#e2e8f0); border-radius:8px;
+    background:transparent; font-size:.85rem; font-weight:600;
+    color:var(--foreground,#0f172a); cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .diag-growth-btn.is-active {
+    border-color:#6366f1; background:oklch(0.55 0.18 245 / 0.08);
+    color:#6366f1;
+  }
+  .diag-run-btn {
+    padding:.55rem 1.4rem; border-radius:8px;
+    background:#6366f1; color:#fff; border:none;
+    font-size:.88rem; font-weight:700; cursor:pointer;
+    transition:opacity .15s;
+  }
+  .diag-run-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .diag-status {
+    font-size:.8rem; font-weight:600; padding:.25rem 0;
+    min-height:1.4rem;
+  }
+  .diag-status--running { color:#6366f1; }
+  .diag-status--error   { color:#dc2626; }
+  .diag-status--done    { color:#16a34a; }
+
+  /* ── Result cards ─────────────────────────────────────────── */
+  .diag-result-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:1rem;
+  }
+  @media (max-width:600px) { .diag-result-grid { grid-template-columns:1fr; } }
+
+  .diag-result-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:12px; padding:1.1rem 1.25rem;
+  }
+  .diag-result-card--highlight { border-color:#6366f1; }
+  .diag-result-card__label {
+    font-size:.7rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    text-transform:uppercase; letter-spacing:.06em; margin:0 0 .4rem;
+  }
+  .diag-result-card__value {
+    font-size:1.1rem; font-weight:800; color:var(--foreground,#0f172a);
+    margin:0 0 .6rem; line-height:1.2;
+  }
+  .diag-conf-row {
+    display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem;
+  }
+  .diag-conf-bar-track {
+    flex:1; height:6px; border-radius:999px; background:#e2e8f0;
+  }
+  .diag-conf-bar-fill {
+    height:100%; border-radius:999px;
+    background:linear-gradient(90deg,#6366f1,#818cf8);
+    transition:width .5s ease;
+  }
+  .diag-conf-pct {
+    font-size:.78rem; font-weight:700; color:#6366f1; white-space:nowrap;
+  }
+  .diag-breakdown-list {
+    list-style:none; margin:0; padding:0;
+    display:flex; flex-direction:column; gap:.28rem;
+  }
+  .diag-breakdown-item {
+    display:flex; align-items:center; gap:.4rem; font-size:.75rem;
+  }
+  .diag-breakdown-item__label { flex:1; color:var(--foreground,#0f172a); }
+  .diag-breakdown-item__bar-track {
+    width:60px; height:4px; border-radius:999px; background:#e2e8f0; flex-shrink:0;
+  }
+  .diag-breakdown-item__bar-fill {
+    height:100%; border-radius:999px; background:#c7d2fe;
+    transition:width .4s;
+  }
+  .diag-breakdown-item--top .diag-breakdown-item__bar-fill { background:#6366f1; }
+  .diag-breakdown-item__pct {
+    width:34px; text-align:right; font-weight:600;
+    color:var(--muted-foreground,#64748b);
+  }
+  .diag-breakdown-item--top .diag-breakdown-item__pct { color:#6366f1; }
+
+  /* ── Angles audit box ─────────────────────────────────────── */
+  .diag-angles-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:12px; padding:1rem 1.25rem;
+  }
+  .diag-angles-title {
+    font-size:.72rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    text-transform:uppercase; letter-spacing:.06em; margin:0 0 .65rem;
+  }
+  .diag-angles-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:.4rem;
+  }
+  .diag-angle-chip {
+    background:#f8fafc; border:1px solid var(--border,#e2e8f0);
+    border-radius:7px; padding:.3rem .6rem; font-size:.75rem;
+    display:flex; flex-direction:column; gap:.08rem;
+  }
+  .diag-angle-chip__name { color:var(--muted-foreground,#64748b); font-weight:600; }
+  .diag-angle-chip__val  { font-weight:800; color:var(--foreground,#0f172a); }
+
+  /* ── History ──────────────────────────────────────────────── */
+  .diag-history-label {
+    font-size:.72rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    text-transform:uppercase; letter-spacing:.06em; margin:1.5rem 0 .5rem;
+  }
+
+  /* ── Section headers ─────────────────────────────────────── */
+  .diag-section-hdr {
+    display:flex; align-items:center; gap:.5rem;
+    margin:1.25rem 0 .7rem;
+  }
+  .diag-section-hdr:first-child { margin-top:0; }
+  .diag-section-hdr__title {
+    font-size:.78rem; font-weight:800;
+    color:var(--foreground,#0f172a);
+    text-transform:uppercase; letter-spacing:.07em; margin:0;
+  }
+  .diag-section-hdr__pill {
+    font-size:.65rem; font-weight:700; padding:2px 7px;
+    border-radius:999px; white-space:nowrap;
+  }
+  .diag-section-hdr__pill--rule {
+    background:#f0fdf4; color:#166534; border:1px solid #bbf7d0;
+  }
+  .diag-section-hdr__pill--ml {
+    background:oklch(0.75 0.15 245 / 0.18);
+    color:oklch(0.45 0.18 245);
+    border:1px solid oklch(0.75 0.15 245 / 0.4);
+  }
+  .diag-section-divider {
+    border:none; border-top:1px solid var(--border,#e2e8f0); margin:.5rem 0 0;
+  }
+
+  /* ── Rule-based summary cards ────────────────────────────── */
+  .rb-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:.5rem;
+  }
+  .rb-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:10px; padding:.75rem 1rem; font-size:.82rem;
+  }
+  .rb-card__name {
+    font-weight:700; color:var(--foreground,#0f172a); margin:0 0 .2rem;
+  }
+  .rb-card__angle {
+    font-size:1rem; font-weight:800; color:#6366f1; margin:0 0 .3rem;
+  }
+  .rb-card__norm {
+    font-size:.7rem; color:var(--muted-foreground,#64748b); margin:0 0 .3rem;
+  }
+  .rb-card__status {
+    display:inline-block; font-size:.7rem; font-weight:700;
+    padding:1px 7px; border-radius:999px;
+  }
+  .rb-card__status--normal   { background:#f0fdf4; color:#166534; }
+  .rb-card__status--increased,
+  .rb-card__status--high     { background:#fef2f2; color:#991b1b; }
+  .rb-card__status--reduced,
+  .rb-card__status--low      { background:#fffbeb; color:#92400e; }
+  .rb-card__status--approximate { background:#f8fafc; color:#475569; }
+
+  /* ── Measurement ML cards ─────────────────────────────────── */
+  .mml-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.6rem;
+    margin-bottom:1rem;
+  }
+  .mml-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:10px; padding:.8rem 1rem;
+  }
+  .mml-card__name {
+    font-size:.7rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    text-transform:uppercase; letter-spacing:.05em; margin:0 0 .15rem;
+  }
+  .mml-card__angle {
+    font-size:.95rem; font-weight:800; color:#6366f1; margin:0 0 .55rem;
+  }
+  .mml-card__row {
+    display:flex; flex-direction:column; gap:.1rem; margin-bottom:.45rem;
+  }
+  .mml-card__row-label {
+    font-size:.66rem; font-weight:700; color:var(--muted-foreground,#64748b);
+    text-transform:uppercase; letter-spacing:.05em;
+  }
+  .mml-card__row-value {
+    font-size:.84rem; font-weight:700; color:var(--foreground,#0f172a);
+    line-height:1.2;
+  }
+  .mml-conf-row {
+    display:flex; align-items:center; gap:.35rem; margin-top:.2rem;
+  }
+  .mml-conf-bar-track {
+    flex:1; height:4px; border-radius:999px; background:#e2e8f0;
+  }
+  .mml-conf-bar-fill {
+    height:100%; border-radius:999px;
+    background:linear-gradient(90deg,#6366f1,#818cf8);
+  }
+  .mml-conf-pct {
+    font-size:.7rem; font-weight:700; color:#6366f1; white-space:nowrap;
+  }
+
+  /* ── Summary panels ──────────────────────────────────────── */
+  .mml-summary-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin-bottom:.8rem;
+  }
+  @media (max-width:600px) { .mml-summary-grid { grid-template-columns:1fr; } }
+  .mml-summary-panel {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:10px; padding:.85rem 1rem;
+  }
+  .mml-summary-panel__title {
+    font-size:.68rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:.06em; color:var(--muted-foreground,#64748b);
+    margin:0 0 .55rem;
+  }
+  .mml-summary-item { margin:0 0 .5rem; }
+  .mml-summary-item:last-child { margin-bottom:0; }
+  .mml-summary-item__label {
+    font-size:.85rem; font-weight:700; color:var(--foreground,#0f172a);
+  }
+  .mml-summary-item__support {
+    font-size:.72rem; color:var(--muted-foreground,#64748b); margin-top:.05rem;
+  }
+
+  /* ── Doctor-review disclaimer ────────────────────────────── */
+  .mml-disclaimer {
+    background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;
+    padding:.6rem .9rem; font-size:.78rem; color:#9a3412;
+    display:flex; gap:.5rem; align-items:flex-start; margin-top:.2rem;
+  }
+  .mml-disclaimer__icon { flex-shrink:0; font-size:1rem; }
+</style>
+
+<div class="diag-shell">
+
+  <div class="diag-disclaimer">
+    <strong>Decision-support only.</strong>&nbsp;
+    Results must be reviewed and confirmed by the orthodontist before any clinical decision.
+  </div>
+
+  <div class="diag-form-card">
+    <p class="diag-form-card__title">Patient growth stage</p>
+    <div class="diag-growth-row">
+      <button type="button" class="diag-growth-btn is-active" id="diagGrowthAdult"
+              onclick="setGrowth('adult')">👤 Adult</button>
+      <button type="button" class="diag-growth-btn" id="diagGrowthGrowing"
+              onclick="setGrowth('growing')">🌱 Growing patient</button>
+      <button type="button" class="diag-run-btn" id="diagRunBtn"
+              onclick="runDiagnosis()">Run Diagnosis</button>
+    </div>
+    <p class="diag-status" id="diagStatus"></p>
+  </div>
+
+  {% if side_measurement_cards %}
+  <div class="diag-section-hdr">
+    <h4 class="diag-section-hdr__title">Rule-Based Measurement Analysis</h4>
+    <span class="diag-section-hdr__pill diag-section-hdr__pill--rule">Threshold</span>
+  </div>
+  <div class="rb-grid">
+    {% for card in side_measurement_cards %}
+    <div class="rb-card">
+      <p class="rb-card__name">{{ card.name }}</p>
+      <p class="rb-card__angle">{{ card.value }}</p>
+      <p class="rb-card__norm">Normal: {{ card.normal_range }}</p>
+      <span class="rb-card__status rb-card__status--{{ card.badge }}">{{ card.status_label }}</span>
+      {% if card.note %}<p style="font-size:.7rem;color:var(--muted-foreground,#64748b);margin:.3rem 0 0;">{{ card.note }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <hr class="diag-section-divider" style="margin:1rem 0 0;">
+  {% endif %}
+
+  <div class="diag-section-hdr" style="margin-top:1rem;">
+    <h4 class="diag-section-hdr__title">Measurement-Level ML Analysis</h4>
+    <span class="diag-section-hdr__pill diag-section-hdr__pill--ml">AI · Per-angle</span>
+  </div>
+
+  <div id="diagResultArea">
+    <div class="empty" style="padding:12px 0 8px;">
+      <div class="empty__title">No ML analysis yet</div>
+      <div class="empty__text">Select a growth stage above and click <strong>Run Diagnosis</strong>.</div>
+    </div>
+  </div>
+
+  {# ── Doctor review summary + completion progress ─────────────────────── #}
+  <div id="reviewSummaryArea" style="display:none;"></div>
+
+  {# ── Profile simulation settings ────────────────────────────────────── #}
+  <div id="simSettingsArea" style="display:none;"></div>
+
+  {# ── Generated simulation result ────────────────────────────────────── #}
+  <div id="simResultArea" style="display:none;"></div>
+
+</div>{# /diag-shell #}
+
+<style>
+  /* ── Doctor review controls ─────────────────────────────── */
+  .mml-card--approved { border-color:#16a34a; box-shadow:0 0 0 1px #16a34a inset; }
+  .mml-card--declined { border-color:#dc2626; opacity:.72; }
+  .mml-card--pending  { border-color:#f59e0b; }
+  .mml-review { border-top:1px dashed var(--border,#e2e8f0); margin-top:.55rem; padding-top:.5rem; }
+  .mml-review__label {
+    font-size:.62rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground,#64748b); display:block; margin-bottom:.35rem;
+  }
+  .mml-review__btns { display:flex; gap:.4rem; }
+  .rev-btn {
+    flex:1; cursor:pointer; font-size:.72rem; font-weight:700; padding:.35rem .4rem;
+    border-radius:7px; border:1px solid var(--border,#e2e8f0); background:#fff;
+    color:var(--foreground,#0f172a); transition:.12s;
+  }
+  .rev-btn--approve.is-active { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .rev-btn--decline.is-active { background:#dc2626; border-color:#dc2626; color:#fff; }
+  .mml-review__state {
+    display:inline-block; margin-top:.4rem; font-size:.66rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:.05em;
+  }
+  .state--pending  { color:#b45309; }
+  .state--approved { color:#15803d; }
+  .state--declined { color:#b91c1c; }
+
+  /* ── Review summary panel ───────────────────────────────── */
+  .rev-summary {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:12px; padding:1rem 1.1rem; margin-top:1rem;
+  }
+  .rev-summary__hdr {
+    font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground,#64748b); margin:0 0 .3rem;
+  }
+  .rev-progress { font-size:.95rem; font-weight:800; color:var(--foreground,#0f172a); margin:0 0 .7rem; }
+  .rev-progress-track { height:6px; border-radius:999px; background:#e2e8f0; margin:.35rem 0 .8rem; }
+  .rev-progress-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#16a34a,#22c55e); }
+  .rev-finding { font-size:.82rem; margin:.18rem 0; }
+  .rev-finding--approved { color:#15803d; }
+  .rev-finding--declined { color:#b91c1c; }
+  .rev-finding--pending  { color:#b45309; }
+  .rev-blocker {
+    background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;
+    padding:.55rem .8rem; font-size:.8rem; color:#9a3412; margin-top:.7rem;
+  }
+
+  /* ── Simulation settings ────────────────────────────────── */
+  .sim-settings {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:12px; padding:1rem 1.1rem; margin-top:1rem;
+  }
+  .sim-settings__title {
+    font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground,#64748b); margin:0 0 .8rem;
+  }
+  .sim-field { margin-bottom:.85rem; }
+  .sim-field__label {
+    display:block; font-size:.72rem; font-weight:700; margin-bottom:.3rem;
+    color:var(--foreground,#0f172a);
+  }
+  .ms-wrap { position:relative; }
+  .ms-toggle {
+    width:100%; text-align:left; cursor:pointer; padding:.5rem .7rem; border-radius:8px;
+    border:1px solid var(--border,#e2e8f0); background:#fff; font-size:.82rem;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .ms-panel {
+    position:absolute; z-index:20; left:0; right:0; margin-top:.25rem; background:#fff;
+    border:1px solid var(--border,#e2e8f0); border-radius:8px; padding:.4rem;
+    box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:240px; overflow:auto;
+  }
+  .ms-opt { display:flex; align-items:center; justify-content:flex-start; gap:.55rem; padding:.4rem .5rem; border-radius:6px; cursor:pointer; font-size:.82rem; text-align:left; }
+  .ms-opt:hover { background:#f1f5f9; }
+  .ms-opt input[type="checkbox"] {
+    width:16px; min-width:16px; height:16px; flex:0 0 16px; margin:0; cursor:pointer;
+  }
+  .ms-opt span { flex:1; }
+  .sim-select {
+    width:100%; padding:.5rem .7rem; border-radius:8px; border:1px solid var(--border,#e2e8f0);
+    background:#fff; font-size:.82rem;
+  }
+  .sim-generate {
+    width:100%; cursor:pointer; padding:.6rem; border-radius:9px; border:0;
+    background:#6366f1; color:#fff; font-weight:800; font-size:.85rem;
+  }
+  .sim-generate:disabled { background:#c7d2fe; cursor:not-allowed; }
+  .sim-status { font-size:.78rem; margin-top:.5rem; }
+  .sim-status--error { color:#b91c1c; }
+  .sim-status--running { color:#b45309; }
+  .sim-status--done { color:#15803d; }
+
+  /* ── Simulation result ──────────────────────────────────── */
+  .sim-result { margin-top:1rem; }
+  .sim-compare { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
+  @media (max-width:600px){ .sim-compare{ grid-template-columns:1fr; } }
+  .sim-compare figure { margin:0; }
+  .sim-compare img { width:100%; border-radius:10px; border:1px solid var(--border,#e2e8f0); display:block; }
+  .sim-compare figcaption { font-size:.72rem; font-weight:700; color:var(--muted-foreground,#64748b); margin-bottom:.3rem; }
+  .sim-meta { font-size:.78rem; color:var(--foreground,#0f172a); margin-top:.7rem; }
+  .sim-meta__row { margin:.15rem 0; }
+  .sim-disclaimer {
+    background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;
+    padding:.55rem .8rem; font-size:.76rem; color:#9a3412; margin-top:.7rem;
+  }
+</style>
+
+<script>
+(function () {
+  var CASE_ID = {{ case.id }};
+  var growthStage = 'adult';
+  var statusEl = document.getElementById('diagStatus');
+  var runBtn   = document.getElementById('diagRunBtn');
+  var resultEl = document.getElementById('diagResultArea');
+  var reviewArea  = document.getElementById('reviewSummaryArea');
+  var simSettings = document.getElementById('simSettingsArea');
+  var simResult   = document.getElementById('simResultArea');
+
+  var STATE = null;
+  var selectedChanges = {};            // change code -> true
+  var strengthVal = 'conservative';
+  var msOpen = false;
+
+  var MEAS_ORDER = ['nasiolabial', 'profile_convexity', 'total_convexity', 'mentolabial'];
+  var SIDE_ORIGINAL = {{ (side_original or '')|tojson }};
+
+  window.setGrowth = function (val) {
+    growthStage = val;
+    document.getElementById('diagGrowthAdult').classList.toggle('is-active', val === 'adult');
+    document.getElementById('diagGrowthGrowing').classList.toggle('is-active', val === 'growing');
+  };
+
+  {% if side_diag %}
+  window.setGrowth('{{ side_diag.growth_stage }}');
+  {% endif %}
+
+  function setStatus(cls, msg) {
+    statusEl.className = 'diag-status' + (cls ? ' diag-status--' + cls : '');
+    statusEl.textContent = msg;
+  }
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function pct(v) { return (Number(v || 0) * 100).toFixed(1); }
+
+  /* ── Render the four review cards ─────────────────────────────────────── */
+  function cardsHtml(state) {
+    var html = '<div class="mml-grid">';
+    state.measurements.forEach(function (m) {
+      var st = m.review_status || 'pending';
+      var diagPct = pct(m.diagnosis_confidence), treatPct = pct(m.treatment_confidence);
+      var angle = (m.angle == null) ? '—' : Number(m.angle).toFixed(1) + '°';
+      html +=
+        '<div class="mml-card mml-card--' + st + '">' +
+          '<p class="mml-card__name">' + escHtml(m.measurement_label) + '</p>' +
+          '<p class="mml-card__angle">' + angle + '</p>' +
+          '<div class="mml-card__row">' +
+            '<span class="mml-card__row-label">Predicted diagnosis</span>' +
+            '<span class="mml-card__row-value">' + escHtml(m.model_diagnosis) + '</span>' +
+            '<div class="mml-conf-row"><div class="mml-conf-bar-track"><div class="mml-conf-bar-fill" style="width:' + diagPct + '%;"></div></div><span class="mml-conf-pct">' + diagPct + '%</span></div>' +
+          '</div>' +
+          '<div class="mml-card__row">' +
+            '<span class="mml-card__row-label">Treatment consideration</span>' +
+            '<span class="mml-card__row-value">' + escHtml(m.model_treatment) + '</span>' +
+            '<div class="mml-conf-row"><div class="mml-conf-bar-track"><div class="mml-conf-bar-fill" style="width:' + treatPct + '%;"></div></div><span class="mml-conf-pct">' + treatPct + '%</span></div>' +
+          '</div>' +
+          '<div class="mml-review">' +
+            '<span class="mml-review__label">Doctor review</span>' +
+            '<div class="mml-review__btns">' +
+              '<button type="button" class="rev-btn rev-btn--approve' + (st==='approved'?' is-active':'') + '" onclick="reviewFinding(\'' + m.measurement_key + '\',\'approved\')">✓ Approve</button>' +
+              '<button type="button" class="rev-btn rev-btn--decline' + (st==='declined'?' is-active':'') + '" onclick="reviewFinding(\'' + m.measurement_key + '\',\'declined\')">✗ Decline</button>' +
+            '</div>' +
+            '<span class="mml-review__state state--' + st + '">' + st.charAt(0).toUpperCase() + st.slice(1) + '</span>' +
+          '</div>' +
+        '</div>';
+    });
+    return html + '</div>';
+  }
+
+  function summaryPanel(title, items, emptyMsg) {
+    var rows = (items && items.length)
+      ? items.map(function (e) {
+          return '<div class="mml-summary-item"><div class="mml-summary-item__label">' +
+            escHtml(e.label) + '</div><div class="mml-summary-item__support">Supported by: ' +
+            escHtml(e.supported_by.join(', ')) + '</div></div>';
+        }).join('')
+      : '<div class="mml-summary-item__support">' + escHtml(emptyMsg) + '</div>';
+    return '<div class="mml-summary-panel"><p class="mml-summary-panel__title">' +
+      escHtml(title) + '</p>' + rows + '</div>';
+  }
+
+  function reviewSummaryHtml(state) {
+    var p = state.progress;
+    var fillPct = p.total ? (p.reviewed / p.total * 100) : 0;
+    var findings = state.measurements.map(function (m) {
+      var st = m.review_status;
+      if (st === 'approved') {
+        return '<div class="rev-finding rev-finding--approved">✓ ' + escHtml(m.model_diagnosis) +
+          ' <span style="opacity:.7;">(' + escHtml(m.measurement_label) + ')</span></div>';
+      } else if (st === 'declined') {
+        return '<div class="rev-finding rev-finding--declined">✗ ' + escHtml(m.measurement_label) + ' result declined</div>';
+      }
+      return '<div class="rev-finding rev-finding--pending">… ' + escHtml(m.measurement_label) + ' pending review</div>';
+    }).join('');
+
+    var blocker = state.blocker_message
+      ? '<div class="rev-blocker">' + escHtml(state.blocker_message) + '</div>' : '';
+
+    // Clinical decision-support disclaimer (preserved from the model output).
+    var discHtml = state.disclaimer
+      ? '<div class="mml-disclaimer"><span class="mml-disclaimer__icon">⚕️</span><span>' +
+          escHtml(state.disclaimer) + '</span></div>'
+      : '';
+
+    return '<div class="rev-summary">' +
+      '<p class="rev-summary__hdr">Doctor review</p>' +
+      '<p class="rev-progress">' + p.reviewed + ' of ' + p.total + ' findings reviewed</p>' +
+      '<div class="rev-progress-track"><div class="rev-progress-fill" style="width:' + fillPct + '%;"></div></div>' +
+      '<p class="rev-summary__hdr" style="margin-top:.3rem;">Findings</p>' + findings +
+      '<div class="mml-summary-grid" style="margin-top:.8rem;">' +
+        summaryPanel('Reviewed diagnosis summary', state.diagnosis_summary, 'No approved diagnoses yet.') +
+        summaryPanel('Reviewed treatment summary', state.treatment_summary, 'No approved treatments yet.') +
+      '</div>' + blocker + discHtml +
+    '</div>';
+  }
+
+  /* ── Simulation settings ─────────────────────────────────────────────── */
+  function multiselectSummaryText() {
+    var n = Object.keys(selectedChanges).filter(function (k){ return selectedChanges[k]; }).length;
+    if (n === 0) return 'Select changes…';
+    return n + (n === 1 ? ' change selected' : ' changes selected');
+  }
+
+  function simSettingsHtml(state) {
+    var opts = state.simulation_options.map(function (o) {
+      var checked = selectedChanges[o.code] ? ' checked' : '';
+      return '<label class="ms-opt"><input type="checkbox"' + checked +
+        ' onchange="toggleChange(\'' + o.code + '\', this.checked)"><span>' + escHtml(o.label) + '</span></label>';
+    }).join('');
+
+    var strengths = state.strengths.map(function (s) {
+      var sel = (s.code === strengthVal) ? ' selected' : '';
+      return '<option value="' + s.code + '"' + sel + '>' + escHtml(s.label) + '</option>';
+    }).join('');
+
+    return '<div class="sim-settings">' +
+      '<p class="sim-settings__title">Profile Simulation Settings</p>' +
+      '<div class="sim-field">' +
+        '<label class="sim-field__label">Changes to simulate</label>' +
+        '<div class="ms-wrap">' +
+          '<button type="button" class="ms-toggle" id="msToggle" onclick="toggleMs()">' +
+            '<span id="msSummary">' + escHtml(multiselectSummaryText()) + '</span><span>▼</span>' +
+          '</button>' +
+          '<div class="ms-panel" id="msPanel" style="display:' + (msOpen?'block':'none') + ';">' +
+            (opts || '<div class="ms-opt" style="opacity:.6;">No changes available</div>') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="sim-field">' +
+        '<label class="sim-field__label">Change strength</label>' +
+        '<select class="sim-select" onchange="setStrength(this.value)">' + strengths + '</select>' +
+      '</div>' +
+      '<button type="button" class="sim-generate" id="simGenBtn" onclick="generateSimulation(false)">Generate Profile Simulation</button>' +
+      '<p class="sim-status" id="simStatus"></p>' +
+    '</div>';
+  }
+
+  function simResultHtml(sim) {
+    if (!sim) return '';
+    var changes = (sim.selected_change_labels || []).map(function (l){ return '<li>' + escHtml(l) + '</li>'; }).join('');
+    var ts = sim.created_at ? new Date(sim.created_at).toLocaleString('en-GB') : '';
+    var origImg = SIDE_ORIGINAL
+      ? '<figure><figcaption>Original</figcaption><img src="' + escHtml(SIDE_ORIGINAL) + '" alt="Original"></figure>' : '';
+    return '<div class="sim-result">' +
+      '<p class="rev-summary__hdr">Generated profile simulation</p>' +
+      '<div class="sim-compare">' + origImg +
+        '<figure><figcaption>Simulation</figcaption><img src="' + escHtml(sim.simulation_url) + '" alt="Simulation"></figure>' +
+      '</div>' +
+      '<div class="sim-meta">' +
+        '<div class="sim-meta__row"><strong>Selected changes:</strong><ul style="margin:.2rem 0 0 1.1rem;">' + changes + '</ul></div>' +
+        '<div class="sim-meta__row"><strong>Strength:</strong> ' + escHtml(sim.strength_label || sim.strength) + '</div>' +
+        '<div class="sim-meta__row"><strong>Generated:</strong> ' + escHtml(ts) + '</div>' +
+      '</div>' +
+      '<div class="sim-disclaimer">' + escHtml(sim.disclaimer) + '</div>' +
+      '<button type="button" class="btn btn--ghost" style="margin-top:.6rem;" onclick="generateSimulation(true)">↻ Regenerate</button>' +
+    '</div>';
+  }
+
+  /* ── Render everything from the backend review-state ──────────────────── */
+  function renderState(state) {
+    STATE = state;
+    if (!state.measurements || !state.measurements.length) {
+      resultEl.innerHTML =
+        '<div class="empty" style="padding:12px 0 8px;">' +
+          '<div class="empty__title">No ML analysis yet</div>' +
+          '<div class="empty__text">Select a growth stage above and click <strong>Run Diagnosis</strong>.</div>' +
+        '</div>';
+      reviewArea.style.display = 'none';
+      simSettings.style.display = 'none';
+      simResult.style.display = 'none';
+      return;
+    }
+
+    resultEl.innerHTML = cardsHtml(state);
+
+    reviewArea.innerHTML = reviewSummaryHtml(state);
+    reviewArea.style.display = '';
+
+    // Prune any selected changes no longer supported by approved diagnoses.
+    var validCodes = {};
+    state.simulation_options.forEach(function (o){ validCodes[o.code] = true; });
+    Object.keys(selectedChanges).forEach(function (c){ if (!validCodes[c]) delete selectedChanges[c]; });
+
+    if (state.can_simulate) {
+      simSettings.innerHTML = simSettingsHtml(state);
+      simSettings.style.display = '';
+      refreshGenButton();
+    } else {
+      simSettings.innerHTML = '';
+      simSettings.style.display = 'none';
+    }
+
+    if (state.latest_simulation) {
+      simResult.innerHTML = simResultHtml(state.latest_simulation);
+      simResult.style.display = '';
+    } else {
+      simResult.innerHTML = '';
+      simResult.style.display = 'none';
+    }
+  }
+
+  function refreshGenButton() {
+    var btn = document.getElementById('simGenBtn');
+    if (!btn) return;
+    var n = Object.keys(selectedChanges).filter(function (k){ return selectedChanges[k]; }).length;
+    btn.disabled = (n === 0) || !(STATE && STATE.can_simulate);
+  }
+
+  window.toggleMs = function () {
+    msOpen = !msOpen;
+    var panel = document.getElementById('msPanel');
+    if (panel) panel.style.display = msOpen ? 'block' : 'none';
+  };
+  window.toggleChange = function (code, on) {
+    if (on) selectedChanges[code] = true; else delete selectedChanges[code];
+    var sm = document.getElementById('msSummary');
+    if (sm) sm.textContent = multiselectSummaryText();
+    refreshGenButton();
+  };
+  window.setStrength = function (val) { strengthVal = val; };
+
+  /* ── Review action ───────────────────────────────────────────────────── */
+  window.reviewFinding = function (key, status) {
+    fetch('/case/' + CASE_ID + '/measurement-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ measurement_key: key, review_status: status }),
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (state) {
+      if (state.success) renderState(state);
+      else setStatus('error', '✗ ' + (state.error || 'Could not save review'));
+    })
+    .catch(function (err) { setStatus('error', '✗ Network error: ' + err.message); });
+  };
+
+  /* ── Generate simulation ─────────────────────────────────────────────── */
+  window.generateSimulation = function (force) {
+    var btn = document.getElementById('simGenBtn');
+    var sEl = document.getElementById('simStatus');
+    var codes = Object.keys(selectedChanges).filter(function (k){ return selectedChanges[k]; });
+    if (!force && codes.length === 0) { if (sEl){ sEl.className='sim-status sim-status--error'; sEl.textContent='Select at least one change.'; } return; }
+
+    if (btn) btn.disabled = true;
+    if (sEl) { sEl.className = 'sim-status sim-status--running'; sEl.textContent = '⏳ Generating simulation… this can take up to a minute.'; }
+
+    fetch('/api/cases/' + CASE_ID + '/profile-simulation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_changes: codes, strength: strengthVal, regenerate: !!force }),
+    })
+    .then(function (r) { return r.json().then(function (j){ return { ok: r.ok, body: j }; }); })
+    .then(function (res) {
+      var data = res.body;
+      if (data.success) {
+        if (sEl) { sEl.className = 'sim-status sim-status--done'; sEl.textContent = data.reused ? '✓ Showing existing simulation.' : '✓ Simulation generated.'; }
+        simResult.innerHTML = simResultHtml({
+          simulation_url: data.simulation_url,
+          selected_change_labels: data.selected_change_labels,
+          strength: data.strength, strength_label: data.strength_label,
+          created_at: data.created_at, disclaimer: data.disclaimer,
+        });
+        simResult.style.display = '';
+      } else {
+        if (sEl) { sEl.className = 'sim-status sim-status--error'; sEl.textContent = '✗ ' + (data.error || 'Generation failed'); }
+      }
+      refreshGenButton();
+    })
+    .catch(function (err) {
+      if (sEl) { sEl.className = 'sim-status sim-status--error'; sEl.textContent = '✗ Network error: ' + err.message; }
+      refreshGenButton();
+    });
+  };
+
+  /* ── Load saved state ────────────────────────────────────────────────── */
+  function loadReviewState() {
+    fetch('/case/' + CASE_ID + '/review-state')
+      .then(function (r) { return r.json(); })
+      .then(function (state) { if (state.success) renderState(state); })
+      .catch(function () { /* leave empty state */ });
+  }
+
+  window.runDiagnosis = function () {
+    runBtn.disabled = true;
+    setStatus('running', '⏳ Running diagnosis…');
+    fetch('/case/' + CASE_ID + '/side-diagnosis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ growth_stage: growthStage }),
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      runBtn.disabled = false;
+      if (data.success && data.measurement_ml && data.measurement_ml.success) {
+        setStatus('done', '✓ Diagnosis complete — review each finding below.');
+        loadReviewState();
+      } else {
+        var err = (data.measurement_ml && data.measurement_ml.error) || data.error || 'Diagnosis failed';
+        setStatus('error', '✗ ' + err);
+      }
+    })
+    .catch(function (err) {
+      runBtn.disabled = false;
+      setStatus('error', '✗ Network error: ' + err.message);
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded', loadReviewState);
+})();
+</script>
+
+{% else %}
+<div class="empty empty--case">
+  <div class="empty__title">No side view</div>
+  <div class="empty__text">No side profile photo has been uploaded or analyzed for this case.</div>
+</div>
+{% endif %}
+
+</div>{# /tab-panel-side #}
+
+<div id="tab-panel-front" class="tab-panel">
+
+{% if front_upload_url and not show_front %}
+<div class="panel panel--failed-upload">
+  <h2 class="panel__title">Frontal non-smile photo</h2>
+  <p class="panel__sub">Uploaded but could not be analyzed.</p>
+  <div class="imgwrap"><img class="result-img" src="{{ front_upload_url }}" alt="Uploaded frontal photo"></div>
+  <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
+</div>
+{% elif show_front %}
+<!-- FRONTAL NON-SMILE -->
+<div class="panel panel--analysis">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Frontal non-smile analysis</h2>
+      <p class="panel__sub">Landmark overlay with proportional measures</p>
+    </div>
+    <button class="btn btn--ghost" type="button" onclick="openEditor('FRONT_NS')"
+            style="padding:4px 10px;font-size:.75rem;border-radius:7px;white-space:nowrap;">
+      ✎ Adjust landmarks
+    </button>
+  </div>
+
+  <div id="frontNsMeasurementViewer" class="measurement-viewer">
+    <div class="imgwrap imgwrap--meas">
+      <img class="result-img" data-measure-image src="{{ url_for('static', filename=front_ns_overlay) }}" alt="Frontal non-smile overlay">
+      <canvas class="meas-canvas" data-measure-canvas></canvas>
+    </div>
+
+    <div class="measurement-tools">
+      <div class="measurement-tools__row">
+        <label class="front-measure-label" for="frontMeasurementSelect">Measurement overlay</label>
+        <select id="frontMeasurementSelect" class="front-measure-select" data-measure-select></select>
+      </div>
+
+      <div class="measurement-card" data-measure-card></div>
+
+      <details class="calib-collapse">
+        <summary class="calib-collapse__toggle">📐 Calibration &amp; distance tools</summary>
+        <div class="calib-collapse__body">
+          <div class="measurement-tools__row">
+            <label class="front-measure-label" for="frontRealDistance">Known distance (mm)</label>
+            <input id="frontRealDistance" class="measurement-input" type="number" min="0.01" step="0.01" placeholder="e.g. 10" data-real-distance>
+          </div>
+          <div class="measurement-tools__row" style="flex-wrap:wrap;gap:.4rem;">
+            <button class="btn btn--ghost measurement-btn" type="button" data-calibrate-button>Start Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-save-calibration>Save Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-measure-button>Measure Distance</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-calibration>Reset Calibration</button>
+            <button class="btn btn--ghost measurement-btn" type="button" data-reset-measurement>Reset Measurement</button>
+          </div>
+          <div class="measurement-scale">
+            <span data-scale-text>No calibration yet</span>
+            <span data-calibration-status>Click "Start Calibration"</span>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  {# ── Frontal landmark confidence ──────────────────────────────────── #}
+  {% if front_ns_confidence and front_ns_confidence|length > 0 %}
+  <div class="lm-conf-section" id="frontConfSection">
+    <div class="lm-conf-title" id="frontConfToggle" onclick="toggleConf('front')" title="Show/hide confidence scores">
+      <span class="lm-conf-title__icon">📊</span>
+      <span>Landmark detection confidence</span>
+      <span class="lm-conf-title__chevron">▼</span>
+    </div>
+    <div class="lm-conf-grid" id="frontConfGrid">
+      {% for conf in front_ns_confidence %}
+      {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
+      <div class="lm-conf-cell lm-conf-cell--{{ tier }}">
+        <span class="lm-conf-cell__label">Landmark {{ loop.index }}</span>
+        <span class="lm-conf-cell__pct">{{ "%.1f"|format(conf) }}%</span>
+        <div class="lm-conf-bar-track">
+          <div class="lm-conf-bar-fill" style="width:{{ conf }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="lm-conf-note">
+      🟢 ≥ 75% high · 🟡 50–74% moderate · 🔴 &lt; 50% low.
+      Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+{% if frontal_measurement_cards %}
+<section class="meas-section" id="meas-section-frontal" style="margin-top:1.5rem;">
+  <h3 class="meas-section__title">Frontal non-smile measurements</h3>
+  <p class="meas-section__sub">Proportions and alignment. Click a card to highlight the measurement on the image above.</p>
+  <div class="meas-grid">
+    {% for card in frontal_measurement_cards %}
+    <button type="button" class="meas-metric-card" data-view="front" data-vis-key="{{ card.vis_key }}" aria-pressed="false">
+      <span class="meas-metric-card__name">{{ card.name }}</span>
+      <span class="meas-metric-card__value">{{ card.value }}</span>
+      <span class="meas-metric-card__norm">Reference: {{ card.normal_range }}</span>
+      <div class="meas-metric-card__foot">
+        <span class="meas-badge meas-badge--{{ card.badge }}">{{ card.status_label }}</span>
+        {% if card.note %}<span class="meas-metric-card__note">{{ card.note }}</span>{% endif %}
+      </div>
+      <span class="meas-metric-card__view-hint">↗ View on image</span>
+    </button>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if ai_insights.frontal %}
+<div class="ai-insight-block" style="margin-top:1.5rem;">
+  <h4 class="meas-section__title">Frontal non-smile insights</h4>
+  {% for row in ai_insights.frontal %}
+  <div class="ai-insight-row">
+    <div class="ai-insight-row__head">
+      <p class="ai-insight-row__name">{{ row.name }}</p>
+      <span class="ai-insight-row__conf">Confidence {{ row.confidence }}%</span>
+    </div>
+    <div class="ai-progress" role="presentation"><div class="ai-progress__fill" style="width:{{ row.confidence }}%;"></div></div>
+    <p class="ai-insight-row__text">{{ row.explanation }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Frontal Diagnosis & Treatment ─────────────────────────────────────── #}
+<div class="panel panel--analysis" id="frontal-diag-section" style="margin-top:1.5rem;">
+  <div class="panel__head">
+    <span class="panel__title">Frontal Diagnosis &amp; Treatment</span>
+  </div>
+  <div class="panel__body" style="padding:1rem 1.25rem;">
+
+    {# Run button #}
+    <button id="frontalDiagBtn" class="btn btn--primary" type="button"
+            onclick="window.runFrontalDiagnosis()">
+      Run Frontal Diagnosis
+    </button>
+
+    {# Loading state #}
+    <div id="frontalDiagLoading" style="display:none;margin-top:.75rem;color:#6366f1;font-size:.9rem;">
+      Running models&hellip;
+    </div>
+
+    {# Error state #}
+    <div id="frontalDiagError" style="display:none;margin-top:.75rem;color:#dc2626;font-size:.88rem;"></div>
+
+    {# Result cards #}
+    <div id="frontalDiagResults" style="display:none;margin-top:1rem;">
+      <div class="meas-grid" id="frontalDiagGrid">
+        {# filled by JS #}
+      </div>
+    </div>
+
+    {# Pre-filled from DB on page load #}
+    {% if frontal_diag %}
+    <script>
+    (function () {
+      var _fd = {{ frontal_diag.results_json | safe }};
+      document.addEventListener("DOMContentLoaded", function () {
+        window._renderFrontalDiagResults(_fd);
+      });
+    })();
+    </script>
+    {% endif %}
+
+  </div>
+</div>
+{# ── /Frontal Diagnosis & Treatment ────────────────────────────────────── #}
+
+{% else %}
+<div class="empty empty--case">
+  <div class="empty__title">No front view</div>
+  <div class="empty__text">No frontal non-smile photo has been uploaded or analyzed for this case.</div>
+</div>
+{% endif %}
+
+</div>{# /tab-panel-front #}
+
+<div id="tab-panel-summary" class="tab-panel ai-tab-panel">
+  <div style="background:#f1f5f9;border-left:3px solid #6366f1;padding:.65rem 1rem;border-radius:0 6px 6px 0;font-size:.82rem;color:#475569;margin-bottom:1rem;">
+    <strong>Decision-support only.</strong> This AI result must be reviewed and confirmed by the orthodontist before clinical use.
+  </div>
+  <div class="ai-hero-card">
+    <h3 class="ai-hero-card__title"><span aria-hidden="true">✨</span> Treatment recommendations</h3>
+    <p style="margin:0;font-size:0.85rem;color:#475569;line-height:1.5;">{{ ai_insights.summary }}</p>
+    {% if case.doctor_comment %}
+    <div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--muted);">
+      <p style="margin:0 0 4px;font-size:0.72rem;font-weight:700;color:#0f2942;">Doctor review</p>
+      <p style="margin:0;font-size:0.8rem;">{{ case.doctor_comment }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if ai_insights.side %}
+  <div class="ai-insight-block">
+    <h4 class="meas-section__title">Side view insights</h4>
+    {% for row in ai_insights.side %}
+    <div class="ai-insight-row">
+      <div class="ai-insight-row__head">
+        <p class="ai-insight-row__name">{{ row.name }}</p>
+        <span class="ai-insight-row__conf">Confidence {{ row.confidence }}%</span>
+      </div>
+      <div class="ai-progress" role="presentation"><div class="ai-progress__fill" style="width:{{ row.confidence }}%;"></div></div>
+      <p class="ai-insight-row__text">{{ row.explanation }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if ai_insights.frontal %}
+  <div class="ai-insight-block">
+    <h4 class="meas-section__title">Frontal non-smile insights</h4>
+    {% for row in ai_insights.frontal %}
+    <div class="ai-insight-row">
+      <div class="ai-insight-row__head">
+        <p class="ai-insight-row__name">{{ row.name }}</p>
+        <span class="ai-insight-row__conf">Confidence {{ row.confidence }}%</span>
+      </div>
+      <div class="ai-progress" role="presentation"><div class="ai-progress__fill" style="width:{{ row.confidence }}%;"></div></div>
+      <p class="ai-insight-row__text">{{ row.explanation }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if ai_insights.recommendations %}
+  <div class="ai-insight-block">
+    <h4 class="meas-section__title">Clinical support notes</h4>
+    <ul class="ai-rec-list">
+      {% for item in ai_insights.recommendations %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="ai-approach-box">
+    <p class="ai-approach-box__title">Suggested approach</p>
+    <p>{{ ai_insights.suggested_approach }}</p>
+  </div>
+
+</div>
+
+{# (orphaned diagnosis tab permanently removed) #}
+
+
+
+
+<div id="tab-panel-xray" class="tab-panel">
+<style>
+  .xray-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; }
+  @media(max-width:768px){ .xray-grid { grid-template-columns:1fr; } }
+  /* Drop zone for add-xray upload */
+  .drop-zone {
+    border: 2px dashed var(--border, #cbd5e1);
+    border-radius: 10px;
+    padding: 1.75rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .18s, background .18s;
+    background: var(--muted, #f8fafc);
+    user-select: none;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--primary, #6366f1);
+    background: oklch(0.55 0.18 245 / 0.05);
+  }
+  .drop-zone__icon { font-size: 1.8rem; margin-bottom: .4rem; }
+  .drop-zone__label { margin: 0; font-size: .88rem; font-weight: 600; color: var(--foreground); }
+  .drop-zone__hint  { margin: .2rem 0 0; font-size: .76rem; color: var(--muted-foreground, #94a3b8); }
+  .xray-overlay-img { width:100%; border-radius:8px; border:1px solid var(--border,#e2e8f0); display:block; }
+  .diag-table { width:100%; border-collapse:collapse; margin-top:.5rem; }
+  .diag-table th, .diag-table td { padding:.6rem .85rem; text-align:left; border-bottom:1px solid var(--border,#e2e8f0); font-size:.9rem; }
+  .diag-table th { font-weight:600; color:var(--muted-foreground,#64748b); font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; }
+  .conf-badge { display:inline-block; padding:.18rem .55rem; border-radius:999px; font-size:.76rem; font-weight:700; }
+  .conf-badge--high   { background:#dcfce7; color:#15803d; }
+  .conf-badge--medium { background:#fef9c3; color:#854d0e; }
+  .conf-badge--low    { background:#fee2e2; color:#b91c1c; }
+  .conf-bar { height:6px; border-radius:3px; background:var(--muted,#e2e8f0); margin-top:.35rem; overflow:hidden; }
+  .conf-bar__fill { height:100%; border-radius:3px; background:var(--primary,#6366f1); transition:width .4s ease; }
+  .xray-disclaimer { background:var(--muted,#f1f5f9); border-left:3px solid var(--primary,#6366f1); padding:.75rem 1rem; border-radius:0 6px 6px 0; font-size:.82rem; color:var(--muted-foreground,#64748b); margin-top:1.25rem; }
+  /* Measurements tab enhancements */
+  .meas-info-banner {
+    display:flex; align-items:flex-start; gap:.6rem;
+    background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
+    padding:.7rem 1rem; font-size:.84rem; color:#1e40af; margin-bottom:1.25rem;
+  }
+  .meas-info-banner__icon { font-size:1rem; flex-shrink:0; margin-top:.05rem; }
+
+  .meas-metric-card__view-hint {
+    display:block; margin-top:.5rem;
+    font-size:.72rem; font-weight:600; color:var(--primary,#6366f1);
+    opacity:0; transition:opacity .15s;
+    text-align:right;
+  }
+  .meas-metric-card:hover .meas-metric-card__view-hint,
+  .meas-metric-card.is-selected .meas-metric-card__view-hint { opacity:1; }
+
+  .meas-metric-card.is-selected {
+    border-color: var(--primary,#6366f1);
+    box-shadow: 0 0 0 2px rgba(99,102,241,.25);
+  }
+
+  .meas-cal-note {
+    display:flex; align-items:center; gap:.6rem;
+    background:#f8fafc; border:1px solid var(--border,#e2e8f0); border-radius:8px;
+    padding:.65rem 1rem; font-size:.83rem; color:var(--muted-foreground,#64748b);
+    margin-top:1.25rem;
+  }
+  .meas-cal-note__link {
+    background:none; border:none; padding:0; cursor:pointer;
+    color:var(--primary,#6366f1); font-weight:600; font-size:.83rem;
+    text-decoration:underline; text-underline-offset:2px;
+  }
+  .meas-cal-note__link:hover { color:#4f46e5; }
+
+  /* Tab-switch flash: brief highlight on Visual Analysis panel */
+  @keyframes meas-flash { 0%,100%{background:transparent} 40%{background:#eef2ff} }
+  .meas-flash-target { animation: meas-flash .7s ease; }
+
+  /* Collapsible admin panels */
+  .admin-collapsible { border:1px solid var(--border,#e2e8f0); border-radius:10px; overflow:hidden; }
+  .admin-collapsible__toggle {
+    display:flex; align-items:center; gap:.5rem;
+    padding:.75rem 1.1rem; cursor:pointer;
+    font-size:.875rem; font-weight:600; color:var(--foreground);
+    background:var(--muted,#f8fafc); list-style:none;
+    user-select:none;
+  }
+  .admin-collapsible__toggle::-webkit-details-marker { display:none; }
+  .admin-collapsible__toggle::before { content:"▶"; font-size:.65rem; color:#94a3b8; transition:transform .2s; }
+  details[open] > .admin-collapsible__toggle::before { transform:rotate(90deg); }
+  .admin-collapsible > .patient-mini-card { border-top:1px solid var(--border,#e2e8f0); border-radius:0; box-shadow:none; }
+</style>
+
+  {% if ortho_status == "FAILED" %}
+  <div class="case-alert case-alert--warn" style="margin-bottom:1rem;">
+    X-ray AI analysis failed: {{ ortho_error or "Unknown error" }}
+  </div>
+  {% elif ortho_status == "DONE" and ortho_diagnosis %}
+
+  <div class="xray-grid">
+
+    <!-- Overlay -->
+    <div class="panel panel--analysis">
+      <div class="panel__head"><div>
+        <h2 class="panel__title">Landmark detection</h2>
+        <p class="panel__sub">19 cephalometric landmarks predicted by HRNet AI</p>
+      </div></div>
+      <div style="padding:1rem;">
+        {% if ortho_overlay %}
+        <img class="xray-overlay-img"
+             src="{{ url_for('static', filename=ortho_overlay) }}"
+             alt="Cephalometric X-ray with landmarks">
+        {% else %}
+        <p style="color:var(--muted-foreground);">Overlay image not available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Diagnosis -->
+    <div class="panel panel--analysis">
+      <div class="panel__head"><div>
+        <h2 class="panel__title">AI Suggested Diagnosis</h2>
+        <p class="panel__sub">AI-based cephalometric analysis from X-ray landmarks</p>
+      </div></div>
+      <div style="padding:1rem;">
+        {# ── Primary findings ───────────────────────────────────────────── #}
+        {% set _primary    = ortho_diagnosis.get('primary', {}) %}
+        {% set _supportive = ortho_diagnosis.get('supportive', {}) %}
+
+        {% if _primary %}
+        <p style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);margin:0 0 .5rem;">Primary Findings</p>
+        <table class="diag-table" style="margin-bottom:1rem;">
+          <thead><tr><th>Category</th><th>Finding</th><th>Confidence</th><th>Review</th></tr></thead>
+          <tbody>
+          {% for key, d in _primary.items() %}
+            {% set lvl = (d.confidence_level or 'low') | lower %}
+            <tr>
+              <td><strong>{{ d.display_name }}</strong></td>
+              <td>{{ d.label }}</td>
+              <td>
+                <span class="conf-badge conf-badge--{{ lvl }}">
+                  {% if lvl == "high" %}High ≥85%
+                  {% elif lvl == "medium" %}Med 70–84%
+                  {% else %}Low &lt;70%
+                  {% endif %}
+                </span>
+                <div style="font-size:.8rem;color:var(--muted-foreground);margin-top:.2rem;">{{ d.confidence }}%</div>
+                <div class="conf-bar"><div class="conf-bar__fill" style="width:{{ d.confidence }};"></div></div>
+              </td>
+              <td>
+                {% if d.requires_doctor_review %}
+                <span style="font-size:.72rem;font-weight:600;color:#b45309;background:#fef3c7;padding:.15rem .5rem;border-radius:4px;">⚠ Review</span>
+                {% else %}
+                <span style="font-size:.72rem;font-weight:600;color:#166534;background:#dcfce7;padding:.15rem .5rem;border-radius:4px;">✓ OK</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+
+        {# ── Supportive findings ─────────────────────────────────────────── #}
+        {% if _supportive %}
+        <p style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);margin:0 0 .5rem;">Supportive Findings</p>
+        <table class="diag-table" style="margin-bottom:1rem;">
+          <thead><tr><th>Category</th><th>Finding</th><th>Confidence</th><th>Review</th></tr></thead>
+          <tbody>
+          {% for key, d in _supportive.items() %}
+            {% set lvl = (d.confidence_level or 'low') | lower %}
+            <tr>
+              <td><strong>{{ d.display_name }}</strong></td>
+              <td>{{ d.label }}</td>
+              <td>
+                <span class="conf-badge conf-badge--{{ lvl }}">
+                  {% if lvl == "high" %}High ≥85%
+                  {% elif lvl == "medium" %}Med 70–84%
+                  {% else %}Low &lt;70%
+                  {% endif %}
+                </span>
+                <div style="font-size:.8rem;color:var(--muted-foreground);margin-top:.2rem;">{{ d.confidence }}%</div>
+                <div class="conf-bar"><div class="conf-bar__fill" style="width:{{ d.confidence }};"></div></div>
+              </td>
+              <td>
+                {% if d.requires_doctor_review %}
+                <span style="font-size:.72rem;font-weight:600;color:#b45309;background:#fef3c7;padding:.15rem .5rem;border-radius:4px;">⚠ Review</span>
+                {% else %}
+                <span style="font-size:.72rem;font-weight:600;color:#166534;background:#dcfce7;padding:.15rem .5rem;border-radius:4px;">✓ OK</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+
+        {% if ortho_diagnosis.get('is_legacy') %}
+        <div style="font-size:.78rem;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:.6rem .85rem;margin-bottom:.75rem;">
+          ⚠ <strong>Legacy result</strong> — stored from the previous 4-model pipeline. Re-run X-ray analysis to upgrade to the 11-model pipeline.
+        </div>
+        {% endif %}
+
+        <div class="xray-disclaimer">
+          <strong>Decision-support only.</strong> This AI result must be reviewed and confirmed by the orthodontist before clinical use. It does not replace clinical examination or professional judgement.
+          {% if ortho_diagnosis.disclaimer %}<br><em>{{ ortho_diagnosis.disclaimer }}</em>{% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /xray-grid -->
+
+  <!-- ── Explainable AI (SHAP) Section ──────────────────────────────────── -->
+  <style>
+    /* SHAP panel — scoped within the X-ray tab */
+    .shap-panel {
+      margin-top: 1.5rem;
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .shap-panel__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .85rem 1.1rem;
+      background: var(--muted, #f8fafc);
+      border-bottom: 1px solid var(--border, #e2e8f0);
+      gap: .75rem;
+    }
+    .shap-panel__title {
+      margin: 0;
+      font-size: .95rem;
+      font-weight: 700;
+      color: var(--foreground);
+    }
+    .shap-panel__sub {
+      margin: .15rem 0 0;
+      font-size: .78rem;
+      color: var(--muted-foreground, #64748b);
+    }
+    .shap-trigger-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .4rem .9rem;
+      border-radius: 6px;
+      border: 1px solid var(--primary, #6366f1);
+      background: transparent;
+      color: var(--primary, #6366f1);
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+      white-space: nowrap;
+    }
+    .shap-trigger-btn:hover { background: var(--primary, #6366f1); color: #fff; }
+    .shap-trigger-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .shap-trigger-btn .shap-spinner {
+      display: none;
+      width: 12px; height: 12px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: shap-spin .7s linear infinite;
+    }
+    .shap-trigger-btn.loading .shap-spinner { display: inline-block; }
+    @keyframes shap-spin { to { transform: rotate(360deg); } }
+    .shap-body { padding: 1rem 1.1rem; }
+    .shap-status-msg {
+      font-size: .82rem;
+      color: var(--muted-foreground, #64748b);
+      padding: .5rem 0;
+    }
+    .shap-status-msg.error { color: #b91c1c; }
+    /* accordion per diagnosis */
+    .shap-accordion { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; margin-bottom: .75rem; overflow: hidden; }
+    .shap-accordion__toggle {
+      width: 100%; text-align: left;
+      display: flex; align-items: center; gap: .6rem;
+      padding: .65rem 1rem;
+      background: #f8fafc; border: none; cursor: pointer;
+      font-size: .875rem; font-weight: 600; color: var(--foreground);
+    }
+    .shap-accordion__toggle:hover { background: #f1f5f9; }
+    .shap-accordion__toggle .shap-acc-caret { font-size: .65rem; color: #94a3b8; transition: transform .2s; margin-left: auto; }
+    .shap-accordion.open .shap-acc-caret { transform: rotate(90deg); }
+    .shap-accordion__body { display: none; padding: .75rem 1rem 1rem; }
+    .shap-accordion.open .shap-accordion__body { display: block; }
+    .shap-status-badge {
+      font-size: .68rem; font-weight: 700; padding: .1rem .45rem;
+      border-radius: 999px;
+    }
+    .shap-status-badge--primary   { background: #dbeafe; color: #1d4ed8; }
+    .shap-status-badge--supportive { background: #fef9c3; color: #854d0e; }
+    .shap-prob-row { font-size: .8rem; color: var(--muted-foreground); margin-bottom: .6rem; }
+    /* feature lists */
+    .shap-feat-section { margin-top: .75rem; }
+    .shap-feat-title {
+      font-size: .7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted-foreground); margin: 0 0 .4rem;
+    }
+    .shap-feat-list { list-style: none; margin: 0; padding: 0; }
+    .shap-feat-item {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: .4rem .75rem;
+      padding: .35rem 0;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: .82rem;
+    }
+    .shap-feat-item:last-child { border-bottom: none; }
+    .shap-feat-desc { color: var(--foreground); line-height: 1.35; }
+    .shap-feat-val  { color: var(--muted-foreground); font-size: .76rem; white-space: nowrap; }
+    .shap-feat-shap {
+      font-size: .78rem; font-weight: 700; white-space: nowrap;
+      padding: .12rem .4rem; border-radius: 4px;
+    }
+    .shap-feat-shap--supports { background: #dcfce7; color: #15803d; }
+    .shap-feat-shap--opposes  { background: #fee2e2; color: #b91c1c; }
+    .shap-feat-shap--neutral  { background: #f1f5f9; color: #64748b; }
+    .shap-bar { height: 4px; border-radius: 2px; background: #e2e8f0; margin-top: 2px; overflow: hidden; }
+    .shap-bar-fill { height: 100%; border-radius: 2px; }
+    .shap-bar-fill--supports { background: #22c55e; }
+    .shap-bar-fill--opposes  { background: #ef4444; }
+    /* additivity badge */
+    .shap-additivity-row {
+      font-size: .72rem; color: var(--muted-foreground);
+      margin-top: .65rem; display: flex; align-items: center; gap: .35rem;
+    }
+    /* disclaimer */
+    .shap-disclaimer {
+      margin-top: 1.25rem;
+      background: var(--muted, #f1f5f9);
+      border-left: 3px solid #f59e0b;
+      padding: .7rem 1rem;
+      border-radius: 0 6px 6px 0;
+      font-size: .8rem;
+      color: var(--muted-foreground, #64748b);
+    }
+    .shap-ref-banner {
+      margin-top: 1rem;
+      padding: .45rem .9rem;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      font-size: .8rem;
+      color: #1e40af;
+    }
+  </style>
+
+  <div class="shap-panel" id="shap-panel">
+    <div class="shap-panel__head">
+      <div>
+        <h2 class="shap-panel__title">🔬 Explainable AI</h2>
+        <p class="shap-panel__sub">
+          Which measurements drove each prediction? Powered by SHAP (SHapley Additive exPlanations).
+        </p>
+      </div>
+      <button type="button" class="shap-trigger-btn" id="shapLoadBtn"
+              onclick="loadShapExplanations({{ case.id }})">
+        <span class="shap-spinner"></span>
+        <span id="shapBtnLabel">Explain AI Predictions</span>
+      </button>
+    </div>
+    <div class="shap-body" id="shapBody">
+      <p class="shap-status-msg" id="shapStatusMsg">
+        Click "Explain AI Predictions" to generate SHAP feature-importance explanations for all 11 diagnoses.
+        This may take 15–30 seconds on first use as models are loaded.
+      </p>
+      <div id="shapResultsContainer"></div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function pct(v) {
+      return (Math.round(v * 1000) / 10).toFixed(1);
+    }
+
+    // ── Feature card HTML (doctor-friendly) ─────────────────────────────────
+    function featureRowHtml(feat, maxAbsShap) {
+      var direction = feat.direction;
+      var barPct = maxAbsShap > 0 ? (feat.absolute_shap_value / maxAbsShap * 100) : 0;
+
+      // Use doctor-friendly fields when available, fall back to technical values
+      var displayName   = feat.display_name     || feat.feature_description || feat.feature_name;
+      var displayValue  = feat.formatted_value  || feat.feature_value.toFixed(4);
+      var refSentence   = feat.reference_sentence || "";
+      var doctorSent    = feat.doctor_sentence  || "";
+
+      // Reference position badge colour
+      var refPos  = feat.reference_position || "";
+      var refColor = refPos === "higher"  ? "#b45309"
+                   : refPos === "lower"   ? "#1d4ed8"
+                   : refPos === "within"  ? "#15803d"
+                   : "#64748b";
+
+      return (
+        "<li class='shap-feat-item'>" +
+          "<div style='flex:1;min-width:0;'>" +
+            "<span class='shap-feat-desc'>" + esc(displayName) + "</span>" +
+            "<div style='display:flex;align-items:center;gap:.6rem;margin:.25rem 0;'>" +
+              "<span style='font-size:.85rem;font-weight:600;color:var(--foreground);'>" + esc(displayValue) + "</span>" +
+              (refSentence
+                ? "<span style='font-size:.75rem;color:" + refColor + ";'>" + esc(refSentence) + "</span>"
+                : "") +
+            "</div>" +
+            "<div class='shap-bar'>" +
+              "<div class='shap-bar-fill shap-bar-fill--" + esc(direction) + "' style='width:" + barPct.toFixed(1) + "%;'></div>" +
+            "</div>" +
+            (doctorSent
+              ? "<p style='font-size:.78rem;color:#475569;margin:.3rem 0 0;font-style:italic;'>" + esc(doctorSent) + "</p>"
+              : "") +
+          "</div>" +
+        "</li>"
+      );
+    }
+
+    // ── Feature list HTML ────────────────────────────────────────────────────
+    function featListHtml(feats, title, emptyMsg) {
+      if (!feats || !feats.length) {
+        return (
+          "<div class='shap-feat-section'>" +
+            "<p class='shap-feat-title'>" + esc(title) + "</p>" +
+            "<p style='font-size:.8rem;color:#94a3b8;'>" + esc(emptyMsg) + "</p>" +
+          "</div>"
+        );
+      }
+      var maxAbs = Math.max.apply(null, feats.map(function(f){ return f.absolute_shap_value; }));
+      return (
+        "<div class='shap-feat-section'>" +
+          "<p class='shap-feat-title'>" + esc(title) + "</p>" +
+          "<ul class='shap-feat-list'>" +
+            feats.map(function(f){ return featureRowHtml(f, maxAbs); }).join("") +
+          "</ul>" +
+        "</div>"
+      );
+    }
+
+    // ── Single diagnosis accordion ───────────────────────────────────────────
+    function diagAccordionHtml(key, data, idx) {
+      var statusCls = (data.status || "").toLowerCase() === "primary"
+                      ? "shap-status-badge--primary"
+                      : "shap-status-badge--supportive";
+      var probPct = (data.predicted_probability * 100).toFixed(1);
+
+      // Class probability chips
+      var classProbHtml = "";
+      if (data.class_probabilities) {
+        classProbHtml = Object.entries(data.class_probabilities).map(function(kv) {
+          var cls = kv[0], prob = kv[1];
+          var isBold = (cls === data.predicted_label);
+          return (
+            "<span style='margin-right:.6rem;" + (isBold ? "font-weight:700;color:var(--foreground);" : "") + "'>" +
+              esc(cls) + ": " + parseFloat(prob).toFixed(1) + "%" +
+            "</span>"
+          );
+        }).join("");
+      }
+
+      var addBadge = data.additivity_valid
+        ? "<span style='color:#15803d;font-weight:600;'>✓ SHAP sum checks out</span>"
+        : "<span style='color:#b45309;font-weight:600;'>⚠ SHAP additivity gap: " +
+            (data.additivity_difference || 0).toExponential(2) + "</span>";
+
+      return (
+        "<div class='shap-accordion' id='shap-acc-" + idx + "'>" +
+          "<button type='button' class='shap-accordion__toggle' onclick='toggleShapAcc(" + idx + ")'>" +
+            "<span class='shap-status-badge " + statusCls + "'>" + esc(data.status) + "</span>" +
+            esc(data.diagnosis) + " — " +
+            "<em style='font-weight:400;'>" + esc(data.predicted_label) + " (" + probPct + "%)</em>" +
+            "<span class='shap-acc-caret'>▶</span>" +
+          "</button>" +
+          "<div class='shap-accordion__body'>" +
+            "<div class='shap-prob-row'>" + classProbHtml + "</div>" +
+            featListHtml(
+              data.supporting_features,
+              "Top factors supporting this prediction",
+              "No features with positive SHAP values for this class."
+            ) +
+            featListHtml(
+              data.opposing_features,
+              "Top factors opposing this prediction",
+              "No features with negative SHAP values for this class."
+            ) +
+            "<div class='shap-additivity-row'>" + addBadge + "</div>" +
+          "</div>" +
+        "</div>"
+      );
+    }
+
+    // ── Toggle accordion ─────────────────────────────────────────────────────
+    window.toggleShapAcc = function (idx) {
+      var el = document.getElementById("shap-acc-" + idx);
+      if (el) el.classList.toggle("open");
+    };
+
+    // ── Main fetch ───────────────────────────────────────────────────────────
+    window.loadShapExplanations = function (caseId) {
+      var btn      = document.getElementById("shapLoadBtn");
+      var label    = document.getElementById("shapBtnLabel");
+      var statusEl = document.getElementById("shapStatusMsg");
+      var container= document.getElementById("shapResultsContainer");
+
+      btn.disabled = true;
+      btn.classList.add("loading");
+      label.textContent = "Computing…";
+      statusEl.className = "shap-status-msg";
+      statusEl.textContent = "Running SHAP for 11 models… this may take 15–30 seconds.";
+      container.innerHTML = "";
+
+      fetch("/case/" + caseId + "/xray-shap", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          btn.disabled = false;
+          btn.classList.remove("loading");
+
+          if (!resp.success) {
+            label.textContent = "Retry";
+            statusEl.className = "shap-status-msg error";
+            statusEl.textContent = "Error: " + (resp.error || "Unknown error.");
+            return;
+          }
+
+          label.textContent = "Reload Explanations";
+          statusEl.textContent = "";
+
+          var data = resp.shap_data;
+          var keys = Object.keys(data);
+          var html = "";
+          keys.forEach(function (key, idx) {
+            html += diagAccordionHtml(key, data[key], idx);
+          });
+
+          // ── Reference source banner ─────────────────────────────────────
+          // Pick sample_count from the first model entry (all share the same value)
+          var refCount = 0;
+          var refSource = "available_system_cases";
+          if (keys.length > 0 && data[keys[0]]) {
+            refCount  = data[keys[0]].sample_count  || 0;
+            refSource = data[keys[0]].reference_source || refSource;
+          }
+          var refBanner = (
+            "<div class='shap-ref-banner'>" +
+              "<strong>Reference source:</strong> " + refCount + " previously analyzed system cases." +
+            "</div>"
+          );
+
+          html += refBanner;
+
+          html += (
+            "<div class='shap-disclaimer'>" +
+              "<strong>About these explanations:</strong> " +
+              "Each card shows a cephalometric measurement, the patient's value, " +
+              "and whether it <em>supported</em> or <em>opposed</em> the model's prediction. " +
+              "<strong>Reference comparisons are based on " + refCount + " available system cases. " +
+              "They are not validated clinical normal ranges and do not represent " +
+              "the original model-training dataset.</strong> " +
+              "SHAP values describe model behaviour only — they do <em>not</em> imply medical causation. " +
+              "All findings must be reviewed and confirmed by the treating orthodontist." +
+            "</div>"
+          );
+
+          container.innerHTML = html;
+
+          // Auto-open the first (Primary) accordion
+          if (keys.length > 0) {
+            var first = document.getElementById("shap-acc-0");
+            if (first) first.classList.add("open");
+          }
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.classList.remove("loading");
+          label.textContent = "Retry";
+          statusEl.className = "shap-status-msg error";
+          statusEl.textContent = "Network error: " + err.message;
+        });
+    };
+  })();
+  </script>
+
+  <!-- ── X-Ray Measurement Cards ───────────────────────── -->
+  {% if xray_measurement_cards %}
+  <div class="panel panel--analysis" id="meas-section-xray" style="margin-top:1.5rem;">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Cephalometric Measurements</h2>
+        <p class="panel__sub">Angles derived from detected X-ray landmarks. Model-derived features — not validated clinical reference ranges.</p>
+      </div>
+    </div>
+    <div class="panel__body" style="padding:1rem 1.25rem;">
+      <div class="meas-grid">
+        {% for card in xray_measurement_cards %}
+        <div class="meas-metric-card meas-metric-card--xray">
+          <span class="meas-metric-card__name">{{ card.name }}</span>
+          <span class="meas-metric-card__value">{{ card.value }}</span>
+          <span class="meas-metric-card__norm">{{ card.normal_range }}</span>
+          <div class="meas-metric-card__foot">
+            <span class="meas-badge meas-badge--{{ card.badge }}">{{ card.status_label }}</span>
+            <span class="meas-metric-card__feature-key">{{ card.feature_key }}</span>
+          </div>
+          {% if card.note %}<p class="meas-metric-card__xray-note">{{ card.note }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Doctor Review Section ───────────────────────── -->
+  <div id="xray-review" class="panel panel--analysis" style="margin-top:1.5rem;">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Doctor Review</h2>
+        <p class="panel__sub">
+          {% if ortho_rec and ortho_rec.reviewed %}
+            Reviewed by <strong>{{ doctor_name }}</strong> on {{ ortho_rec.reviewed_at.strftime('%b %d, %Y at %H:%M') }}
+          {% else %}
+            Mark this AI result as reviewed and record your clinical decision.
+          {% endif %}
+        </p>
+      </div>
+      {% if ortho_rec and ortho_rec.reviewed %}
+      <span style="display:inline-flex;align-items:center;gap:.35rem;background:#dcfce7;color:#15803d;font-size:.8rem;font-weight:700;padding:.3rem .75rem;border-radius:999px;">
+        ✓ Reviewed
+      </span>
+      {% endif %}
+    </div>
+    <div style="padding:1rem;">
+      <form method="POST" action="{{ url_for('ortho_review', case_id=case.id) }}">
+
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem;">
+          <p style="margin:0 0 .5rem;font-size:.78rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;">AI Suggested Diagnosis</p>
+          {% if ortho_diagnosis %}
+          <ul style="margin:0;padding:0 0 0 1.1rem;font-size:.875rem;color:#334155;line-height:1.8;">
+            {% for entry in ortho_diagnosis.get('all_results', []) %}
+              <li>
+                <strong>{{ entry.display_name }}:</strong>
+                {{ entry.label }} ({{ entry.confidence }}%)
+                {% if entry.requires_doctor_review %}<span style="color:#b45309;font-size:.75rem;">⚠ review</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p style="margin:0;font-size:.875rem;color:#94a3b8;">No AI diagnosis available.</p>
+          {% endif %}
+        </div>
+
+        <div class="lov-field" style="margin-bottom:.85rem;">
+          <label style="font-size:.83rem;font-weight:600;color:#374151;display:block;margin-bottom:.4rem;">
+            Doctor Final Diagnosis
+            <span style="font-weight:400;color:#94a3b8;font-size:.76rem;">(separate from AI — your clinical decision)</span>
+          </label>
+          <textarea name="doctor_final_diagnosis" rows="3" class="input" placeholder="e.g. Confirmed Class III skeletal pattern. Upper lip retrusion present. Treatment: extraction protocol…" style="width:100%;resize:vertical;">{{ ortho_rec.doctor_final_diagnosis if ortho_rec and ortho_rec.doctor_final_diagnosis else '' }}</textarea>
+        </div>
+
+        <div class="lov-field" style="margin-bottom:1rem;">
+          <label style="font-size:.83rem;font-weight:600;color:#374151;display:block;margin-bottom:.4rem;">
+            Additional Review Notes <span style="font-weight:400;color:#94a3b8;font-size:.76rem;">(optional)</span>
+          </label>
+          <textarea name="doctor_review_notes" rows="2" class="input" placeholder="e.g. Image quality acceptable. Re-check SNB at next visit." style="width:100%;resize:vertical;">{{ ortho_rec.doctor_review_notes if ortho_rec and ortho_rec.doctor_review_notes else '' }}</textarea>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--small">
+          {% if ortho_rec and ortho_rec.reviewed %}✓ Update Review{% else %}Mark as Reviewed{% endif %}
+        </button>
+        <span style="margin-left:.75rem;font-size:.78rem;color:#94a3b8;">Saving records your name and timestamp.</span>
+      </form>
+    </div>
+  </div>
+
+  {% else %}
+  {# ── No X-ray yet (or status is PENDING/unknown) ─────────────────── #}
+  {% if ortho_status == "PENDING" %}
+  <div class="case-alert case-alert--warn" style="margin-bottom:1rem;">
+    <strong>X-ray analysis is running…</strong> Refresh the page in a moment to see the result.
+  </div>
+  {% else %}
+  {# ── Empty state: upload X-ray for existing case ───────────────────── #}
+  <div id="xray-upload-panel" style="max-width:580px;margin:0 auto;">
+    <div class="panel panel--analysis" style="text-align:center;padding:2rem 1.5rem 1.75rem;">
+      <div style="width:60px;height:60px;border-radius:16px;background:oklch(0.55 0.18 245 / 0.1);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:1.75rem;margin:0 auto 1rem;">🦷</div>
+      <h2 style="margin:0 0 .4rem;font-size:1.1rem;font-weight:700;">Add Cephalometric X-Ray</h2>
+      <p style="margin:0 0 1.5rem;font-size:.875rem;color:var(--muted-foreground);">
+        Upload an X-ray to run orthodontic landmark detection and AI diagnosis for this case.<br>
+        <em>No new case will be created — this updates the existing case record.</em>
+      </p>
+
+      <form id="addXrayForm"
+            method="POST"
+            action="{{ url_for('add_xray_to_case', case_id=case.id) }}"
+            enctype="multipart/form-data">
+
+        {# Drop zone #}
+        <div class="drop-zone" id="xrayDropZone" style="margin-bottom:1rem;"
+             onclick="document.getElementById('xrayFileInput').click()">
+          <div class="drop-zone__icon">📷</div>
+          <p class="drop-zone__label">Click or drag X-ray image here</p>
+          <p class="drop-zone__hint">JPG, PNG, BMP, TIFF</p>
+        </div>
+        <input type="file" name="xray_file" id="xrayFileInput"
+               accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,image/*"
+               style="display:none;">
+
+        {# Preview #}
+        <div id="xrayPreviewBox" style="display:none;margin-bottom:1rem;">
+          <img id="xrayPreviewImg" src="" alt="X-ray preview"
+               style="max-width:100%;max-height:280px;border-radius:8px;border:1px solid var(--border);display:block;margin:0 auto;">
+          <div style="display:flex;gap:.6rem;justify-content:center;margin-top:.6rem;">
+            <button type="button" class="btn btn--ghost btn--small"
+                    onclick="document.getElementById('xrayFileInput').click()">Change image</button>
+            <button type="button" class="btn btn--ghost btn--small"
+                    style="color:var(--destructive);" id="xrayRemoveBtn">Remove</button>
+          </div>
+        </div>
+
+        <button type="submit" id="runXrayBtn" class="btn btn--primary"
+                style="width:100%;justify-content:center;" disabled>
+          <span id="runXrayLabel">Select an image first</span>
+        </button>
+
+        <p style="margin:.75rem 0 0;font-size:.75rem;color:var(--muted-foreground);">
+          The same HRNet + XGBoost pipeline used in New Analysis will be applied. This may take 10–30 seconds.
+        </p>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
+</div>{# /tab-panel-xray #}
+
+<!-- ── Landmark index preview (diagnostic tool) ─────── -->
+{% if side_overlay %}
+<details class="admin-collapsible" style="margin-top:1.5rem;">
+  <summary class="admin-collapsible__toggle">
+    🔢 Landmark Index Preview
+    <span style="font-size:.76rem;color:#94a3b8;font-weight:400;margin-left:.5rem;">Development / diagnostic tool</span>
+  </summary>
+  <div class="patient-mini-card" style="margin-top:.5rem;margin-bottom:0;">
+    <p class="patient-mini-card__sub">
+      Opens the side-view image with each landmark numbered <strong>0–19</strong> so you can identify which index corresponds to which anatomical region.
+      Used to configure the Treatment Simulation landmark groups.
+    </p>
+    <a class="btn btn--ghost btn--small"
+       href="{{ url_for('landmark_preview', case_id=case.id) }}"
+       target="_blank" rel="noopener">
+      Open numbered landmark image ↗
+    </a>
+  </div>
+</details>
+{% endif %}
+
+<!-- ── Collapsible admin panels ─────────────────────── -->
+{% if patient %}
+<div style="margin-top:2rem;">
+
+  <details class="admin-collapsible" style="margin-bottom:1rem;">
+    <summary class="admin-collapsible__toggle">
+      📅 Schedule next visit
+      {% if next_appt %}<span style="font-size:.76rem;color:#94a3b8;font-weight:400;margin-left:.5rem;">Current: {{ next_appt.appointment_date.strftime('%b %d, %Y') }}</span>{% endif %}
+    </summary>
+    <div class="patient-mini-card" style="margin-top:.5rem;margin-bottom:0;">
+      <p class="patient-mini-card__sub">Schedule the next check-up for this case. The patient will see it on their portal.</p>
+      {% if next_appt %}
+      <p style="font-size:0.8rem;color:var(--muted-foreground);margin:0 0 12px;">
+        Current: {{ next_appt.appointment_date.strftime('%b %d, %Y') }} at {{ next_appt.appointment_time.strftime('%I:%M %p') }}
+        ({{ next_appt.status|lower }})
+      </p>
+      {% endif %}
+      <form method="POST" action="{{ url_for('add_appointment') }}">
+        <input type="hidden" name="redirect_to" value="result">
+        <input type="hidden" name="case_id" value="{{ case.id }}">
+        <input type="hidden" name="patient_id" value="{{ patient.id }}">
+        <div class="lov-form-grid" style="margin-bottom:10px;">
+          <div class="lov-field">
+            <label>Appointment date</label>
+            <input class="input" type="date" name="appointment_date" value="{{ next_appt.appointment_date.isoformat() if next_appt else today_iso }}" required>
+          </div>
+          <div class="lov-field">
+            <label>Time</label>
+            <input class="input" type="time" name="appointment_time" value="{{ next_appt.appointment_time.strftime('%H:%M') if next_appt else '14:30' }}" required>
+          </div>
+        </div>
+        <div class="lov-field" style="margin-bottom:10px;">
+          <label>Reason for visit</label>
+          <input class="input" type="text" name="reason" value="{{ next_appt.reason if next_appt else '' }}" required placeholder="e.g. Bracket adjustment, 12-week review">
+        </div>
+        <div class="lov-field" style="margin-bottom:10px;">
+          <label>Notes (optional)</label>
+          <textarea class="input" name="notes" rows="2" placeholder="Chair time, elastics check, etc.">{{ next_appt.notes if next_appt and next_appt.notes else '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--small">Save appointment</button>
+      </form>
+    </div>
+  </details>
+
+  <details class="admin-collapsible">
+    <summary class="admin-collapsible__toggle">
+      📝 Private notes
+      <span style="font-size:.76rem;color:#94a3b8;font-weight:400;margin-left:.5rem;">🔒 Only you can see this</span>
+    </summary>
+    <div class="patient-mini-card" style="margin-top:.5rem;margin-bottom:0;">
+      <p class="patient-mini-card__sub">Personal reminders about this patient. Never shared with the patient or included in reports.</p>
+      <form method="POST" action="{{ url_for('save_patient_notes', patient_id=patient.id) }}">
+        <input type="hidden" name="redirect_to" value="result">
+        <input type="hidden" name="case_id" value="{{ case.id }}">
+        <textarea class="patient-notes-textarea" name="private_notes">{{ patient.private_notes or '' }}</textarea>
+        <div class="patient-notes-footer">
+          <span class="patient-notes-status">
+            {% if patient.private_notes_updated_at %}Saved · {{ patient.private_notes_updated_at.strftime('%Y-%m-%d %H:%M') }}{% else %}Not saved yet{% endif %}
+          </span>
+          <button type="submit" class="btn btn--ghost btn--small">💾 Save notes</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
+</div>
+{% endif %}
+
+<!-- Landmark Editor Modal -->
+<div id="lmModal" class="lm-modal hidden">
+  <div class="lm-card">
+    <div class="lm-top">
+      <div>
+        <div class="lm-title">Adjust Landmarks</div>
+        <div class="lm-sub" id="lmSub">Drag points then save.</div>
+      </div>
+      <button class="lm-x" type="button" onclick="closeEditor()">✕</button>
+    </div>
+
+    <div class="lm-stage" id="lmStage">
+      <img id="lmImg" class="lm-img" src="" alt="Editor image">
+      <canvas id="lmCanvas" class="lm-canvas"></canvas>
+    </div>
+
+    <form id="lmForm" method="POST" action="{{ url_for('update_landmarks', case_id=case.id) }}" class="lm-actions">
+      <input type="hidden" name="view_type" id="lmViewType" value="">
+      <input type="hidden" name="points_json" id="lmPointsJson" value="">
+      <button class="btn btn--primary" type="submit">Save Changes</button>
+      <button class="btn btn--ghost" type="button" onclick="resetPoints()">Reset</button>
+      <button class="btn btn--ghost" type="button" onclick="closeEditor()">Cancel</button>
+    </form>
+  </div>
+</div>
+
+
+{# ── Global data variables — must be defined before measurement viewer and  ── #}
+{# ── landmark editor scripts so both can access them as plain globals.       ── #}
+<script>
+  /* Raw landmark arrays in original-image pixel coordinates.
+     Used by: MeasurementViewer (overlay canvas) and the landmark editor modal. */
+  var SIDE_PTS           = {{ side_points           | tojson | safe }};
+  var FRONT_NS_PTS       = {{ front_ns_points       | tojson | safe }};
+  /* Full frontal measurements dict (may be null if no frontal analysis yet). */
+  var FRONT_NS_MEASUREMENTS = {{ front_ns_measurements | tojson | safe }};
+</script>
+
+<script>
+/* ─── Landmark Editor ─────────────────────────────────────────────────────────
+   Shared modal for SIDE and FRONT_NS landmark adjustment.
+   Drag any dot to reposition it, then Save Changes.
+
+   Fix for the "dots invisible on open" bug:
+     imgEl.onload does NOT fire when the same image URL is already loaded in the
+     element (browser-cached in the DOM img element from a previous open).
+     We therefore ALWAYS schedule initDraw() via double-RAF after opening the
+     modal — this fires regardless of whether onload fires, and the double-RAF
+     guarantees the layout reflow has settled before we read getBoundingClientRect.
+   ──────────────────────────────────────────────────────────────────────────── */
+(function () {
+  /* ── data injected by Jinja ── */
+  /* SIDE_PTS / FRONT_NS_PTS / FRONT_NS_MEASUREMENTS are defined globally above */
+  const SIDE_IMG     = {{ side_original      | tojson | safe }};
+  const FRONT_NS_IMG = {{ front_ns_original  | tojson | safe }};
+
+  /* ── mutable editor state ── */
+  let currentView   = "SIDE";
+  let points        = [];   /* [[x,y], …] in original-image px */
+  let origPoints    = [];   /* deep copy for Reset */
+  let draggingIdx   = -1;
+
+  /* ── DOM refs ── */
+  const modal     = document.getElementById("lmModal");
+  const imgEl     = document.getElementById("lmImg");
+  const canvas    = document.getElementById("lmCanvas");
+  const ctx       = canvas.getContext("2d");
+  const ptsField  = document.getElementById("lmPointsJson");
+  const viewField = document.getElementById("lmViewType");
+  const sub       = document.getElementById("lmSub");
+
+  /* ════════════════════════════════════════════════════════════════
+     OPEN / CLOSE
+     ════════════════════════════════════════════════════════════════ */
+  window.openEditor = function (viewType) {
+    const src = (viewType === "SIDE") ? SIDE_IMG     : FRONT_NS_IMG;
+    const pts = (viewType === "SIDE") ? SIDE_PTS     : FRONT_NS_PTS;
+
+    if (!src || !pts || pts.length === 0) {
+      alert("No image or landmarks found for this view. Run analysis first.");
+      return;
+    }
+
+    currentView       = viewType;
+    viewField.value   = viewType;
+    sub.innerText     = (viewType === "SIDE")
+      ? "Side view — drag dots to adjust positions, then Save."
+      : "Frontal non-smile — drag dots to adjust positions, then Save.";
+
+    /* Normalise landmark format to [[x, y], …] */
+    points = pts.map(p => Array.isArray(p)
+      ? [Number(p[0]), Number(p[1])]
+      : [Number(p.x),  Number(p.y)]);
+    origPoints  = points.map(p => [p[0], p[1]]);
+    draggingIdx = -1;
+
+    /* Show modal before touching the image src, so layout is triggered */
+    modal.classList.remove("hidden");
+
+    /* Wire onload (catches truly uncached images on first-ever page load) */
+    imgEl.onload = initDraw;
+
+    /* Set src. When the URL hasn't changed from a previous open, browsers do
+       NOT re-fire onload.  The double-RAF below is the reliable fallback. */
+    imgEl.src = src;
+
+    /* Double-RAF: waits for two paint frames so that:
+         1. The modal's CSS is fully applied (display:flex → layout computed).
+         2. imgEl has its natural dimensions available.
+       This is the ONLY path needed for cached / same-URL images. */
+    requestAnimationFrame(function () {
+      requestAnimationFrame(initDraw);
+    });
+  };
+
+  window.closeEditor = function () {
+    modal.classList.add("hidden");
+    draggingIdx = -1;
+  };
+
+  window.resetPoints = function () {
+    points      = origPoints.map(p => [p[0], p[1]]);
+    draggingIdx = -1;
+    draw();
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     CANVAS SIZING
+     Called after the modal is visible and the image is loaded.
+     Returns true when canvas was successfully sized.
+     ════════════════════════════════════════════════════════════════ */
+  function initDraw () {
+    /* Guard: image must be loaded */
+    if (!imgEl.naturalWidth || !imgEl.naturalHeight) return;
+
+    /* Guard: modal must be laid out (getBoundingClientRect returns real size) */
+    const r = imgEl.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return;
+
+    /* Set canvas BUFFER to match the displayed image size.
+       CSS (.lm-canvas { position:absolute; width:100%; height:100% }) handles
+       the display scaling — we only need to set the attribute dimensions. */
+    canvas.width  = Math.round(r.width);
+    canvas.height = Math.round(r.height);
+
+    draw();
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     COORDINATE HELPERS
+     ════════════════════════════════════════════════════════════════ */
+  function toCanvas (ix, iy) {
+    return [
+      ix * canvas.width  / imgEl.naturalWidth,
+      iy * canvas.height / imgEl.naturalHeight,
+    ];
+  }
+
+  function toImage (cx, cy) {
+    return [
+      cx * imgEl.naturalWidth  / canvas.width,
+      cy * imgEl.naturalHeight / canvas.height,
+    ];
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     DRAW
+     ════════════════════════════════════════════════════════════════ */
+  function draw () {
+    /* Nothing to draw if canvas has no buffer */
+    if (!canvas.width || !canvas.height) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < points.length; i++) {
+      const [cx, cy] = toCanvas(points[i][0], points[i][1]);
+      const isDragging = (i === draggingIdx);
+
+      /* White halo for contrast against any background */
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fill();
+
+      /* Coloured dot: orange while dragging, blue otherwise */
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5.5, 0, 2 * Math.PI);
+      ctx.fillStyle = isDragging ? "#f97316" : "rgba(47,111,237,0.92)";
+      ctx.fill();
+
+      /* Index label */
+      ctx.font        = "bold 10px system-ui, sans-serif";
+      ctx.fillStyle   = "#0f172a";
+      ctx.textAlign   = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(i), cx + 9, cy);
+    }
+
+    /* Keep hidden form field in sync for Save Changes submission */
+    ptsField.value = JSON.stringify(
+      points.map(p => ({ x: Math.round(p[0]), y: Math.round(p[1]) }))
+    );
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     HIT TEST
+     ════════════════════════════════════════════════════════════════ */
+  function hitTest (mx, my) {
+    const SNAP = 14; /* canvas-px snap radius */
+    for (let i = 0; i < points.length; i++) {
+      const [cx, cy] = toCanvas(points[i][0], points[i][1]);
+      if (Math.hypot(mx - cx, my - cy) <= SNAP) return i;
+    }
+    return -1;
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     MOUSE EVENTS
+     ════════════════════════════════════════════════════════════════ */
+  canvas.addEventListener("mousedown", function (e) {
+    const r  = canvas.getBoundingClientRect();
+    const idx = hitTest(e.clientX - r.left, e.clientY - r.top);
+    if (idx < 0) return;
+    draggingIdx = idx;
+    canvas.style.cursor = "grabbing";
+    draw();
+  });
+
+  /* mouseup on window so we catch releases outside the canvas */
+  window.addEventListener("mouseup", function () {
+    if (draggingIdx >= 0) {
+      draggingIdx = -1;
+      canvas.style.cursor = "grab";
+      draw();
+    }
+  });
+
+  canvas.addEventListener("mousemove", function (e) {
+    if (draggingIdx < 0) return;
+    const r       = canvas.getBoundingClientRect();
+    const [ix, iy] = toImage(e.clientX - r.left, e.clientY - r.top);
+    points[draggingIdx] = [
+      Math.max(0, Math.min(imgEl.naturalWidth,  ix)),
+      Math.max(0, Math.min(imgEl.naturalHeight, iy)),
+    ];
+    draw();
+  });
+
+  /* ════════════════════════════════════════════════════════════════
+     TOUCH EVENTS  (tablet / mobile support)
+     ════════════════════════════════════════════════════════════════ */
+  canvas.addEventListener("touchstart", function (e) {
+    e.preventDefault();
+    const t   = e.touches[0];
+    const r   = canvas.getBoundingClientRect();
+    const idx = hitTest(t.clientX - r.left, t.clientY - r.top);
+    if (idx < 0) return;
+    draggingIdx = idx;
+    draw();
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", function (e) {
+    e.preventDefault();
+    if (draggingIdx < 0) return;
+    const t       = e.touches[0];
+    const r       = canvas.getBoundingClientRect();
+    const [ix, iy] = toImage(t.clientX - r.left, t.clientY - r.top);
+    points[draggingIdx] = [
+      Math.max(0, Math.min(imgEl.naturalWidth,  ix)),
+      Math.max(0, Math.min(imgEl.naturalHeight, iy)),
+    ];
+    draw();
+  }, { passive: false });
+
+  canvas.addEventListener("touchend", function () {
+    draggingIdx = -1;
+  }, { passive: false });
+
+  /* ════════════════════════════════════════════════════════════════
+     WINDOW RESIZE  (re-fit canvas when card or viewport resizes)
+     ════════════════════════════════════════════════════════════════ */
+  window.addEventListener("resize", function () {
+    if (!modal.classList.contains("hidden")) {
+      requestAnimationFrame(initDraw);
+    }
+  });
+
+})();
+</script>
+
+<script src="{{ url_for('static', filename='js/measurement_viewer.js') }}"></script>
+<script>
+  const SIDE_MEASUREMENTS = [
+    { key: "nasiolabial", name: "Nasiolabial Angle", group: "Side View", kind: "angle", anglePoints: [7, 8, 10], segments: [[8, 7], [8, 10]], shortLabels: ["Nasal", "Lip"] },
+    { key: "profile_convexity", name: "Profile Convexity Angle", group: "Side View", kind: "angle", anglePoints: [3, 8, 17], segments: [[8, 3], [8, 17]], shortLabels: ["Profile", "Chin"] },
+    { key: "total_facial_convexity", name: "Total Facial Convexity", group: "Side View", kind: "angle", anglePoints: [3, 5, 17], segments: [[5, 3], [5, 17]], shortLabels: ["Face", "Chin"] },
+    { key: "mentolabial", name: "Mentolabial Angle", group: "Side View", kind: "angle", anglePoints: [15, 16, 17], segments: [[16, 15], [16, 17]], shortLabels: ["Lip", "Chin"] },
+  ];
+
+  const facialWidthPair = FRONT_NS_MEASUREMENTS
+    && FRONT_NS_MEASUREMENTS.horizontal
+    && FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px
+    && FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px.chosen_pair
+      ? FRONT_NS_MEASUREMENTS.horizontal.facial_width_bizygomatic_px.chosen_pair
+      : [1, 28];
+
+  const FRONT_NS_VISUAL_MEASUREMENTS = [
+    { key: "middle_third", name: "Middle Third", group: "Frontal Non-Smile", kind: "distance", segments: [[11, 16]], shortLabel: "Middle Third" },
+    { key: "lower_third", name: "Lower Third", group: "Frontal Non-Smile", kind: "distance", segments: [[16, 24]], shortLabel: "Lower Third" },
+    { key: "upper_to_lower_lip_ratio", name: "Upper lip / Lower lip ratio", group: "Frontal Non-Smile", kind: "ratio", segments: [[18, 21], [21, 23]], shortLabels: ["Upper Lip", "Lower Lip"] },
+    { key: "lip_length_at_rest", name: "Lip Length at Rest", group: "Frontal Non-Smile", kind: "distance", segments: [[16, 21]], shortLabel: "Lip Length" },
+    { key: "interlabial_gap", name: "Interlabial Gap", group: "Frontal Non-Smile", kind: "distance", segments: [[21, 23]], shortLabel: "Lip Gap", note: "Approximate" },
+    { key: "interpupillary_line", name: "Interpupillary line", group: "Frontal Non-Smile", kind: "alignment", segments: [[8, 32]], shortLabel: "Pupillary" },
+    { key: "commissure_line", name: "Commissure line", group: "Frontal Non-Smile", kind: "alignment", segments: [[20, 22]], shortLabel: "Commissure" },
+    { key: "interpupillary_parallel", name: "Interpupillary vs commissure", group: "Frontal Non-Smile", kind: "alignment", segments: [[8, 32], [20, 22]], shortLabel: "Parallel" },
+    { key: "middle_lower_ratio", name: "Middle / lower third ratio", group: "Frontal Non-Smile", kind: "distance", segments: [[11, 16], [16, 24]], shortLabels: ["Middle third", "Lower third"] },
+    { key: "facial_midline", name: "Facial midline", group: "Frontal Non-Smile", kind: "polyline", polyline: [11, 12, 14, 16, 18, 21, 23, 24], shortLabel: "Midline" },
+    { key: "rule_of_fifths", name: "Rule of fifths", group: "Frontal Non-Smile", kind: "guides" },
+    { key: "facial_width", name: "Facial Width", group: "Frontal Non-Smile", kind: "distance", segments: [facialWidthPair], shortLabel: "Facial Width" },
+    { key: "mandibular_width", name: "Mandibular Width", group: "Frontal Non-Smile", kind: "distance", segments: [[3, 26]], shortLabel: "Jaw Width" },
+    { key: "bizygomatic_to_bigonial_ratio", name: "Bizygomatic / Bigonial ratio", group: "Frontal Non-Smile", kind: "ratio", segments: [facialWidthPair, [3, 26]], shortLabels: ["Facial Width", "Jaw Width"] },
+    { key: "facial_index", name: "Facial index", group: "Frontal Non-Smile", kind: "ratio", segments: [[11, 24], facialWidthPair], shortLabels: ["Facial Height", "Facial Width"] },
+  ];
+
+  const MEASUREMENT_TREATMENT_ADVICE = {{ measurement_treatment_advice | tojson | safe }};
+
+  window.measurementViewers = {};
+
+  {% if show_side %}
+  new MeasurementViewer({
+    rootId: "sideMeasurementViewer",
+    viewerKey: "side",
+    points: SIDE_PTS,
+    measurements: SIDE_MEASUREMENTS,
+    treatmentAdvice: MEASUREMENT_TREATMENT_ADVICE,
+  });
+  {% endif %}
+
+  {% if show_front %}
+  new MeasurementViewer({
+    rootId: "frontNsMeasurementViewer",
+    viewerKey: "front",
+    points: FRONT_NS_PTS,
+    measurements: FRONT_NS_VISUAL_MEASUREMENTS,
+    measurementResults: FRONT_NS_MEASUREMENTS,
+    treatmentAdvice: MEASUREMENT_TREATMENT_ADVICE,
+  });
+  {% endif %}
+</script>
+<script src="{{ url_for('static', filename='js/result_analysis.js') }}"></script>
+
+
+
+<script>
+(function () {
+  var fileInput = document.getElementById("xrayFileInput");
+  var dropZone  = document.getElementById("xrayDropZone");
+  var previewBox = document.getElementById("xrayPreviewBox");
+  var previewImg = document.getElementById("xrayPreviewImg");
+  var removeBtn  = document.getElementById("xrayRemoveBtn");
+  var runBtn     = document.getElementById("runXrayBtn");
+  var runLabel   = document.getElementById("runXrayLabel");
+  var form       = document.getElementById("addXrayForm");
+
+  if (!fileInput) return; // X-ray already exists on this case
+
+  function setFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      previewImg.src = e.target.result;
+      dropZone.style.display = "none";
+      previewBox.style.display = "block";
+      runBtn.disabled = false;
+      runLabel.textContent = "Run X-Ray Analysis";
+    };
+    reader.readAsDataURL(file);
+  }
+
+  fileInput.addEventListener("change", function () {
+    setFile(fileInput.files[0]);
+  });
+
+  // Drag-and-drop
+  dropZone.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", function () {
+    dropZone.classList.remove("drag-over");
+  });
+  dropZone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    dropZone.classList.remove("drag-over");
+    var file = e.dataTransfer.files[0];
+    if (file) {
+      // Transfer to the file input so it submits with the form
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      setFile(file);
+    }
+  });
+
+  // Remove
+  if (removeBtn) {
+    removeBtn.addEventListener("click", function () {
+      fileInput.value = "";
+      previewImg.src = "";
+      previewBox.style.display = "none";
+      dropZone.style.display = "";
+      runBtn.disabled = true;
+      runLabel.textContent = "Select an image first";
+    });
+  }
+
+  // Loading state on submit
+  if (form) {
+    form.addEventListener("submit", function () {
+      runBtn.disabled = true;
+      runLabel.textContent = "Running analysis…";
+    });
+  }
+
+  // Auto-open xray tab if URL fragment says so
+  if (window.location.hash === "#tab-panel-xray") {
+    var switchFn = window.switchAnalysisTab;
+    if (typeof switchFn === "function") {
+      switchFn("xray");
+    }
+  }
+})();
+</script>
+
+<script>
+(function () {
+  var FRONTAL_CASE_ID = {{ case.id }};
+
+  var FRONTAL_LABELS = {
+    vertical:  "Vertical Dimension",
+    lip:       "Lip Proportion",
+    line:      "Interpupillary / Commissure Lines",
+    upper_lip: "Upper-Lip Midline",
+    chin:      "Chin Midline",
+    width:     "Facial / Mandibular Width",
+  };
+
+  window._renderFrontalDiagResults = function (results) {
+    var grid = document.getElementById("frontalDiagGrid");
+    var section = document.getElementById("frontalDiagResults");
+    if (!grid || !section) return;
+    grid.innerHTML = "";
+    var keys = ["vertical", "lip", "line", "upper_lip", "chin", "width"];
+    keys.forEach(function (key) {
+      var r = results[key];
+      if (!r) return;
+      var card = document.createElement("div");
+      card.className = "meas-metric-card";
+
+      var name = document.createElement("span");
+      name.className = "meas-metric-card__name";
+      name.textContent = FRONTAL_LABELS[key] || key;
+      card.appendChild(name);
+
+      var val = document.createElement("span");
+      val.className = "meas-metric-card__value";
+      val.textContent = typeof r.value === "number" ? r.value.toFixed(3) : r.value;
+      card.appendChild(val);
+
+      var norm = document.createElement("span");
+      norm.className = "meas-metric-card__norm";
+      norm.textContent = r.measurement || "";
+      card.appendChild(norm);
+
+      var foot = document.createElement("div");
+      foot.className = "meas-metric-card__foot";
+
+      var badge = document.createElement("span");
+      badge.className = "meas-badge meas-badge--info";
+      badge.textContent = r.diagnosis || "";
+      foot.appendChild(badge);
+
+      var conf = document.createElement("span");
+      conf.className = "meas-metric-card__feature-key";
+      conf.textContent = r.confidence ? (r.confidence * 100).toFixed(1) + "%" : "";
+      foot.appendChild(conf);
+      card.appendChild(foot);
+
+      if (r.treatment) {
+        var note = document.createElement("p");
+        note.className = "meas-metric-card__xray-note";
+        note.textContent = r.treatment;
+        card.appendChild(note);
+      }
+
+      grid.appendChild(card);
+    });
+    section.style.display = "";
+    document.getElementById("frontalDiagError").style.display = "none";
+  };
+
+  window.runFrontalDiagnosis = function () {
+    var btn     = document.getElementById("frontalDiagBtn");
+    var loading = document.getElementById("frontalDiagLoading");
+    var errEl   = document.getElementById("frontalDiagError");
+    var results = document.getElementById("frontalDiagResults");
+
+    btn.disabled = true;
+    loading.style.display = "";
+    errEl.style.display = "none";
+    results.style.display = "none";
+
+    fetch("/case/" + FRONTAL_CASE_ID + "/frontal-diagnosis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        loading.style.display = "none";
+        btn.disabled = false;
+        if (!data.success) {
+          errEl.textContent = data.error || "Diagnosis failed.";
+          errEl.style.display = "";
+          return;
+        }
+        window._renderFrontalDiagResults(data.results);
+      })
+      .catch(function (err) {
+        loading.style.display = "none";
+        btn.disabled = false;
+        errEl.textContent = "Network error: " + err.message;
+        errEl.style.display = "";
+      });
+  };
+})();
+</script>
+
+{% endblock %}

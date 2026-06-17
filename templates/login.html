@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — DentAlign</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dentalign-theme.css') }}">
+</head>
+<body class="auth-body auth-body--login">
+
+  <div class="auth auth--login">
+    <div class="auth__left">
+      <div class="auth__overlay" aria-hidden="true"></div>
+      <div class="auth__left-inner">
+        <div class="auth__brand">
+          <img
+            class="auth__logo-img"
+            src="{{ url_for('static', filename='images/dentalign-logo.png') }}"
+            alt="DentAlign"
+            width="64"
+            height="64"
+          />
+          <div class="auth__brand-text">
+            <div class="auth__name">DentAlign</div>
+            <div class="auth__tag">Orthodontic Suite</div>
+          </div>
+        </div>
+
+        <div class="auth__copy">
+          <h1>Precision orthodontic analysis,<br>designed for clinicians.</h1>
+          <p>
+            Upload facial photographs, run AI-assisted landmark detection on side and frontal views,
+            and share secure progress reports with your patients.
+          </p>
+          <div class="auth__bullets">
+            <div class="bullet">✓ Secure doctor login</div>
+            <div class="bullet">✓ Side & frontal non-smile AI models</div>
+            <div class="bullet">✓ Encrypted patient portal access codes</div>
+          </div>
+        </div>
+
+        <p class="auth__copyright">© DentAlign</p>
+      </div>
+    </div>
+
+    <div class="auth__right">
+      <div class="auth-card auth-card--login">
+        <header class="auth-card__header">
+          <img
+            class="auth-card__logo"
+            src="{{ url_for('static', filename='images/dentalign-logo.png') }}"
+            alt=""
+            width="52"
+            height="52"
+          />
+          <div class="auth-card__header-text">
+            <span class="auth-card__product">DentAlign</span>
+            <span class="auth-card__suite">Orthodontic Suite</span>
+          </div>
+        </header>
+
+        <h2>Welcome back, Doctor</h2>
+        <p class="auth-sub">Sign in to access your clinical dashboard.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="auth-messages">
+              {% for category, msg in messages %}
+                <div class="auth-msg auth-msg--{{ category }}">{{ msg }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('login') }}" class="auth-form">
+          <label for="email">Email</label>
+          <input id="email" type="email" name="email" required autocomplete="email" placeholder="sama@clinic.com" />
+
+          <label for="password">Password</label>
+          <input id="password" type="password" name="password" required minlength="8" autocomplete="current-password" placeholder="••••••••" />
+
+          <button class="btn btn--primary auth-form__submit" type="submit">Sign in</button>
+        </form>
+
+        <div class="auth-footer">
+          <p class="auth-footer__hint">Don't have an account?</p>
+          <a class="link-btn" href="{{ url_for('register') }}">Register as doctor</a>
+        </div>
+
+        <div class="auth-patient-box">
+          <p class="auth-patient-box__label">Are you a patient?</p>
+          <a href="{{ url_for('patient_access') }}" class="btn btn--ghost auth-patient-box__btn">
+            Access patient portal →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — DentAlign{% endblock %}
+{% block crumb %}Dashboard{% endblock %}
+
+{% block content %}
+
+<div class="dash-header animate-fade-up">
+  <div>
+    <p class="dash-greeting">Good morning, {{ name }}</p>
+    <h1 class="dash-title">Clinical overview</h1>
+    <p class="dash-sub">Here's what's happening across your practice today.</p>
+  </div>
+  <a class="btn btn--primary dash-upload-btn" href="{{ url_for('new_analysis') }}">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    New case upload
+  </a>
+</div>
+
+<div class="dash-stats stagger-children">
+  <div class="dash-stat-card">
+    <div class="dash-stat-card__top">
+      <div class="dash-stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+      <span class="dash-live-badge">live</span>
+    </div>
+    <p class="dash-stat-value">{{ total_patients }}</p>
+    <p class="dash-stat-label">Total Patients</p>
+    <p class="dash-stat-hint">Registered patients</p>
+  </div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-card__top">
+      <div class="dash-stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <span class="dash-live-badge">live</span>
+    </div>
+    <p class="dash-stat-value">{{ total_cases }}</p>
+    <p class="dash-stat-label">Total Cases</p>
+    <p class="dash-stat-hint">All submitted cases</p>
+  </div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-card__top">
+      <div class="dash-stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <span class="dash-live-badge dash-live-badge--warn">review</span>
+    </div>
+    <p class="dash-stat-value">{{ pending_review }}</p>
+    <p class="dash-stat-label">Pending Review</p>
+    <p class="dash-stat-hint">Needs attention</p>
+  </div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-card__top">
+      <div class="dash-stat-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <span class="dash-live-badge">today</span>
+    </div>
+    <p class="dash-stat-value">{{ appointments_today }}</p>
+    <p class="dash-stat-label">Appointments Today</p>
+    <p class="dash-stat-hint">{{ appointments_remaining }} remaining</p>
+  </div>
+</div>
+
+<div class="dash-main-grid animate-fade-up" style="animation-delay:120ms;">
+  <section class="dash-panel">
+    <div class="dash-panel__head">
+      <div>
+        <h2 class="dash-panel__title">Recent cases</h2>
+        <p class="dash-panel__sub">Latest analyses across your roster</p>
+      </div>
+      <a class="dash-link" href="{{ url_for('history') }}">View all ↗</a>
+    </div>
+
+    {% if recent_case_rows and recent_case_rows|length > 0 %}
+      <div class="dash-recent-list">
+        {% for row in recent_case_rows %}
+          {% set c = row.case %}
+          {% set p = row.patient %}
+          <a class="dash-recent-item" href="{{ url_for('view_result', case_id=c.id) }}">
+            <div class="dash-recent-item__left">
+              <div class="da-avatar">
+                {% if p and p.name %}{{ p.name.split()[0][0] }}{% if p.name.split()|length > 1 %}{{ p.name.split()[1][0] }}{% endif %}{% else %}#{% endif %}
+              </div>
+              <div>
+                <p class="dash-recent-name">{% if p %}{{ p.name }}{% else %}Case #{{ c.id }}{% endif %}</p>
+                <p class="dash-recent-meta">
+                  {% if p %}{{ p.patient_code }} · {% endif %}{{ row.type_label }}
+                </p>
+              </div>
+            </div>
+            <div class="dash-recent-item__right">
+              <span class="dash-status dash-status--{{ row.status_tone }}">{{ row.status_label }}</span>
+              <span class="dash-recent-time">{{ row.relative_time }}</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty" style="padding:28px;text-align:center;">
+        <p class="empty__title">No cases yet</p>
+        <p class="empty__text">Start your first analysis to see results here.</p>
+        <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New case upload</a>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="dash-panel dash-panel--schedule">
+    <div class="dash-panel__head">
+      <div>
+        <h2 class="dash-panel__title">Today's schedule</h2>
+        <p class="dash-panel__sub">Upcoming appointments</p>
+      </div>
+      <a class="dash-link" href="{{ url_for('appointments') }}">Manage</a>
+    </div>
+
+    {% if today_appointments and today_appointments|length > 0 %}
+      <div class="dash-schedule-list">
+        {% for a in today_appointments %}
+          <div class="dash-schedule-item {% if a.status == 'COMPLETED' %}is-done{% endif %}">
+            <div class="dash-schedule-time">
+              <span class="dash-schedule-ampm">{{ a.appointment_time.strftime('%p') }}</span>
+              <span class="dash-schedule-clock">{{ a.appointment_time.strftime('%I:%M') }}</span>
+            </div>
+            <div class="dash-schedule-body">
+              <p class="dash-schedule-name">
+                {% if a.patient %}{{ a.patient.name }}{% else %}Walk-in{% endif %}
+              </p>
+              <p class="dash-schedule-reason">{{ a.reason }}</p>
+            </div>
+            {% if a.status == 'SCHEDULED' %}
+            <form method="POST" action="{{ url_for('complete_appointment', appointment_id=a.id) }}" style="margin:0;">
+              <button type="submit" class="btn btn--ghost btn--small" title="Mark complete">✓</button>
+            </form>
+            {% else %}
+            <span class="dash-status dash-status--analyzed" style="font-size:0.65rem;">Done</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="dash-schedule-empty">
+        <p>No appointments today.</p>
+        <button type="button" class="btn btn--ghost btn--small" id="openDashApptForm">+ Add appointment</button>
+      </div>
+    {% endif %}
+
+    <p style="margin:12px 0 0;text-align:center;">
+      <button type="button" class="dash-link" id="toggleDashApptForm" style="border:none;background:none;cursor:pointer;">+ Add appointment</button>
+    </p>
+
+    <div class="dash-schedule-form-wrap" id="dashApptFormWrap">
+      <p class="dash-schedule-form-title">Schedule appointment</p>
+      <form method="POST" action="{{ url_for('add_appointment') }}" class="dash-schedule-form">
+        <input type="hidden" name="redirect_to" value="dashboard">
+        <div class="dash-schedule-form-row">
+          <label>Patient code (optional)</label>
+          <input class="input" type="text" name="patient_code" list="dashPatientCodes" placeholder="e.g. PT-1042 — leave blank for walk-in" autocomplete="off">
+          <datalist id="dashPatientCodes">
+            {% for p in patients_for_appt %}
+              <option value="{{ p.patient_code }}">{{ p.name }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+        <div class="dash-schedule-form-row">
+          <label>Reason for visit</label>
+          <input class="input" type="text" name="reason" required placeholder="e.g. Bracket adjustment, 12-week review">
+        </div>
+        <div class="dash-schedule-form-row">
+          <label>Notes (optional)</label>
+          <textarea class="input" name="notes" rows="2" placeholder="Chair time, wire change, etc."></textarea>
+        </div>
+        <div class="dash-schedule-form-grid">
+          <div>
+            <label>Date</label>
+            <input class="input" type="date" name="appointment_date" required value="{{ today_iso }}">
+          </div>
+          <div>
+            <label>Time</label>
+            <input class="input" type="time" name="appointment_time" required value="14:30">
+          </div>
+        </div>
+        <button type="submit" class="btn btn--primary btn--small" style="width:100%;">Save appointment</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+{% if recent_messages and recent_messages|length > 0 %}
+<section class="dash-panel" style="margin-top:24px;">
+  <div class="dash-panel__head">
+    <div>
+      <h2 class="dash-panel__title">Patient messages</h2>
+      <p class="dash-panel__sub">Questions from the patient portal{% if unread_messages %} · {{ unread_messages }} unread{% endif %}</p>
+    </div>
+  </div>
+  <div class="dash-recent-list">
+    {% for m in recent_messages %}
+      <div class="dash-recent-item" style="cursor:default;">
+        <div class="dash-recent-item__left">
+          <div class="da-avatar">{{ m.patient.name[0] if m.patient and m.patient.name else '?' }}</div>
+          <div>
+            <p class="dash-recent-name">{{ m.patient.name if m.patient else 'Patient' }}</p>
+            <p class="dash-recent-meta" style="font-style:italic;">"{{ m.question[:140] }}{% if m.question|length > 140 %}…{% endif %}"</p>
+            <p class="dash-recent-meta">{{ m.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+          </div>
+        </div>
+        <div class="dash-recent-item__right">
+          {% if not m.read %}
+          <form method="POST" action="{{ url_for('mark_message_read', message_id=m.id) }}">
+            <button type="submit" class="btn btn--ghost btn--small">Mark read</button>
+          </form>
+          {% else %}
+          <span class="dash-status dash-status--analyzed">Read</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<script>
+function expandDashApptForm() {
+  var w = document.getElementById("dashApptFormWrap");
+  if (w) w.classList.add("is-expanded");
+}
+document.getElementById("openDashApptForm")?.addEventListener("click", expandDashApptForm);
+document.getElementById("toggleDashApptForm")?.addEventListener("click", expandDashApptForm);
+</script>
+{% endblock %}

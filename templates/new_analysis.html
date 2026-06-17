@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}Upload Case — DentAlign{% endblock %}
+{% block crumb %}Upload{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Upload card shared styles ───────────────────── */
+  .upload-card {
+    position: relative;
+  }
+  .upload-card__badge {
+    font-size: .72rem;
+    font-weight: 500;
+    color: var(--muted-foreground, #94a3b8);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 999px;
+    padding: .15rem .55rem;
+    margin-left: .5rem;
+    vertical-align: middle;
+  }
+  .drop-zone {
+    border: 2px dashed var(--border, #cbd5e1);
+    border-radius: 10px;
+    padding: 1.75rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .18s, background .18s;
+    background: var(--muted, #f8fafc);
+    user-select: none;
+  }
+  .drop-zone:hover,
+  .drop-zone.drag-over {
+    border-color: var(--primary, #6366f1);
+    background: #eef2ff;
+  }
+  .drop-zone__icon { font-size: 1.8rem; margin-bottom: .4rem; }
+  .drop-zone__label { margin: 0; font-size: .88rem; font-weight: 600; color: var(--foreground); }
+  .drop-zone__hint  { margin: .2rem 0 0; font-size: .76rem; color: var(--muted-foreground, #94a3b8); }
+
+  .preview-box { display: none; margin-top: .9rem; }
+  .preview-box img {
+    max-width: 100%; max-height: 260px;
+    border-radius: 8px;
+    border: 1px solid var(--border, #e2e8f0);
+    display: block;
+  }
+  .preview-actions {
+    display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; margin-top: .6rem;
+  }
+
+  /* ── Upload row (3 cards side by side) ──────────── */
+  .upload-row-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 900px) { .upload-row-3 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 580px) { .upload-row-3 { grid-template-columns: 1fr; } }
+
+  /* ── Loading overlay ─────────────────────────────── */
+  #globalLoading {
+    display: none; position: fixed; inset: 0;
+    background: rgba(15, 23, 42, .55);
+    z-index: 9999;
+    align-items: center; justify-content: center; flex-direction: column;
+    gap: 1rem; color: #fff; font-size: 1rem;
+  }
+  #globalLoading.active { display: flex; }
+  .spin-ring {
+    width: 52px; height: 52px;
+    border: 5px solid rgba(255,255,255,.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .85s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="animate-fade-up">
+<h1 class="lov-page-title">Upload new case</h1>
+<p class="lov-page-sub">Upload any combination of frontal, side, and cephalometric X-ray images. All fields are optional — analysis runs only for images you provide.</p>
+</div>
+
+<div id="globalLoading">
+  <div class="spin-ring"></div>
+  <p id="loadingMsg">Running analysis…</p>
+</div>
+
+<form method="POST" enctype="multipart/form-data" id="analysisForm">
+
+  <!-- ══════════════════════════════════════
+       Patient section
+  ══════════════════════════════════════ -->
+  <div class="lov-card lov-patient-picker" id="patientPickerCard">
+    <div class="lov-card__head">
+      <h2 class="lov-card__title">Patient information</h2>
+      <button type="button" class="lov-patient-picker__toggle" id="togglePatientMode">Switch to new patient</button>
+    </div>
+
+    <div class="lov-patient-picker__body" id="existingPatientBlock">
+      <div class="lov-form-grid">
+        <div class="lov-field" style="grid-column:1/-1;">
+          <label for="patient_id">Select existing patient</label>
+          <select name="patient_id" id="patient_id" class="input">
+            <option value="">Choose patient…</option>
+            {% for p in patients %}
+              <option value="{{ p.id }}" data-age="{{ p.age if p.age is not none else '' }}" data-gender="{{ p.gender if p.gender else '' }}">
+                {{ p.patient_code }} — {{ p.name }}{% if p.age is not none %} ({{ p.age }}y){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="lov-field">
+          <label for="selected_age">Patient age</label>
+          <input type="text" id="selected_age" class="input" readonly placeholder="Select a patient">
+        </div>
+        <div class="lov-field">
+          <label for="selected_gender">Gender</label>
+          <input type="text" id="selected_gender" class="input" readonly placeholder="Select a patient">
+        </div>
+      </div>
+    </div>
+
+    <div class="lov-patient-picker__body" id="newPatientBlock" style="display:none;">
+      <div class="lov-form-grid">
+        <div class="lov-field">
+          <label for="new_name">Patient name <span style="color:var(--destructive);">*</span></label>
+          <input type="text" name="new_name" id="new_name" class="input" placeholder="e.g. Maryam" disabled>
+        </div>
+        <div class="lov-field">
+          <label for="new_code">Patient ID / code</label>
+          <input type="text" name="new_code" id="new_code" class="input" placeholder="Auto-generated if empty" disabled>
+        </div>
+        <div class="lov-field">
+          <label for="new_age">Patient age</label>
+          <input type="number" name="new_age" id="new_age" class="input" min="1" max="119" step="1" disabled>
+        </div>
+        <div class="lov-field">
+          <label for="new_gender">Gender</label>
+          <select name="new_gender" id="new_gender" class="input" disabled>
+            <option value="">— Select —</option>
+            <option value="MALE">Male</option>
+            <option value="FEMALE">Female</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Case date -->
+  <div class="lov-card">
+    <div class="lov-form-grid">
+      <div class="lov-field">
+        <label for="case_date">Case date</label>
+        <input type="date" name="case_date" id="case_date" class="input" value="{{ today_iso }}" required>
+        <p class="lov-card__sub" style="margin:6px 0 0;font-size:.75rem;">Date of this clinical record.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       Three upload cards
+  ══════════════════════════════════════ -->
+  <div class="upload-row-3 stagger-children" style="animation-delay:80ms;">
+
+    <!-- Card 1: Front -->
+    <div class="lov-card upload-card">
+      <div class="lov-card__head">
+        <h2 class="lov-card__title">Frontal view <span class="upload-card__badge">Optional</span></h2>
+      </div>
+      <div style="padding:.5rem 1.25rem 1.25rem;">
+        <p class="lov-card__sub" style="margin:0 0 .75rem;">Patient facing camera, lips relaxed.</p>
+        <div class="drop-zone" id="dz-front" onclick="document.getElementById('inp-front').click()">
+          <div class="drop-zone__icon">📷</div>
+          <p class="drop-zone__label">Click or drag image here</p>
+          <p class="drop-zone__hint">JPG, PNG, BMP</p>
+        </div>
+        <input type="file" name="front_ns" id="inp-front" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,image/*" style="display:none;">
+        <div class="preview-box" id="pb-front">
+          <img id="img-front" src="" alt="Front preview">
+          <div class="preview-actions">
+            <button type="button" class="btn btn--secondary btn--sm" onclick="changeImg('front')">Change</button>
+            <button type="button" class="btn btn--ghost btn--sm" style="color:var(--destructive);" onclick="removeImg('front')">Remove</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Side -->
+    <div class="lov-card upload-card">
+      <div class="lov-card__head">
+        <h2 class="lov-card__title">Side view <span class="upload-card__badge">Optional</span></h2>
+      </div>
+      <div style="padding:.5rem 1.25rem 1.25rem;">
+        <p class="lov-card__sub" style="margin:0 0 .75rem;">True profile, Frankfort plane horizontal.</p>
+        <div class="drop-zone" id="dz-side" onclick="document.getElementById('inp-side').click()">
+          <div class="drop-zone__icon">🔭</div>
+          <p class="drop-zone__label">Click or drag image here</p>
+          <p class="drop-zone__hint">JPG, PNG, BMP</p>
+        </div>
+        <input type="file" name="side" id="inp-side" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,image/*" style="display:none;">
+        <div class="preview-box" id="pb-side">
+          <img id="img-side" src="" alt="Side preview">
+          <div class="preview-actions">
+            <button type="button" class="btn btn--secondary btn--sm" onclick="changeImg('side')">Change</button>
+            <button type="button" class="btn btn--ghost btn--sm" style="color:var(--destructive);" onclick="removeImg('side')">Remove</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Cephalometric X-Ray -->
+    <div class="lov-card upload-card">
+      <div class="lov-card__head">
+        <h2 class="lov-card__title">Cephalometric X-Ray <span class="upload-card__badge">Optional</span></h2>
+      </div>
+      <div style="padding:.5rem 1.25rem 1.25rem;">
+        <p class="lov-card__sub" style="margin:0 0 .75rem;">Lateral X-ray for HRNet AI orthodontic diagnosis.</p>
+        <div class="drop-zone" id="dz-xray" onclick="document.getElementById('inp-xray').click()">
+          <div class="drop-zone__icon">🦷</div>
+          <p class="drop-zone__label">Click or drag X-ray here</p>
+          <p class="drop-zone__hint">JPG, PNG, BMP, TIFF</p>
+        </div>
+        <input type="file" name="xray" id="inp-xray" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,image/*" style="display:none;">
+        <div class="preview-box" id="pb-xray">
+          <img id="img-xray" src="" alt="X-ray preview">
+          <div class="preview-actions">
+            <button type="button" class="btn btn--secondary btn--sm" onclick="changeImg('xray')">Change</button>
+            <button type="button" class="btn btn--ghost btn--sm" style="color:var(--destructive);" onclick="removeImg('xray')">Remove</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /upload-row-3 -->
+
+  <!-- Private notes -->
+  <div class="lov-card">
+    <div class="lov-card__head">
+      <div>
+        <h2 class="lov-card__title">📝 Private notes</h2>
+        <p class="lov-card__sub">Personal reminders for this upload. Doctor-only.</p>
+      </div>
+      <span class="patient-privacy-badge">🔒 Visible only to you</span>
+    </div>
+    <textarea class="patient-notes-textarea" name="upload_private_notes" placeholder="e.g. Check anchorage at next visit…"></textarea>
+  </div>
+
+  <!-- Run button -->
+  <div class="lov-run-bar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="lov-run-bar__icon">☁</div>
+      <div>
+        <p style="margin:0;font-weight:600;font-size:.9rem;">Ready to analyze</p>
+        <p style="margin:4px 0 0;font-size:.75rem;color:var(--muted-foreground);">
+          Analysis runs only for the images you uploaded. Missing images are skipped.
+        </p>
+      </div>
+    </div>
+    <button type="submit" class="btn btn--primary" id="runBtn" style="white-space:nowrap;">
+      Run analysis →
+    </button>
+  </div>
+
+</form>
+
+<script>
+/* ── Per-card upload / preview / change / remove ─── */
+const cards = {
+  front: { dz: "dz-front", inp: "inp-front", pb: "pb-front", img: "img-front" },
+  side:  { dz: "dz-side",  inp: "inp-side",  pb: "pb-side",  img: "img-side"  },
+  xray:  { dz: "dz-xray",  inp: "inp-xray",  pb: "pb-xray",  img: "img-xray"  },
+};
+
+Object.entries(cards).forEach(([key, ids]) => {
+  const inp = document.getElementById(ids.inp);
+  const dz  = document.getElementById(ids.dz);
+
+  inp.addEventListener("change", () => { if (inp.files[0]) showPreview(key, inp.files[0]); });
+
+  dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("drag-over"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("drag-over"));
+  dz.addEventListener("drop", e => {
+    e.preventDefault(); dz.classList.remove("drag-over");
+    const f = e.dataTransfer.files[0];
+    if (f) { inp.files = e.dataTransfer.files; showPreview(key, f); }
+  });
+});
+
+function showPreview(key, file) {
+  const ids = cards[key];
+  document.getElementById(ids.img).src = URL.createObjectURL(file);
+  document.getElementById(ids.dz).style.display = "none";
+  document.getElementById(ids.pb).style.display = "block";
+}
+
+window.changeImg = function(key) {
+  const ids = cards[key];
+  document.getElementById(ids.inp).value = "";
+  document.getElementById(ids.img).src = "";
+  document.getElementById(ids.dz).style.display = "";
+  document.getElementById(ids.pb).style.display = "none";
+  document.getElementById(ids.inp).click();
+};
+
+window.removeImg = function(key) {
+  const ids = cards[key];
+  document.getElementById(ids.inp).value = "";
+  document.getElementById(ids.img).src = "";
+  document.getElementById(ids.dz).style.display = "";
+  document.getElementById(ids.pb).style.display = "none";
+};
+
+/* ── Loading state on submit ─────────────────────── */
+document.getElementById("analysisForm").addEventListener("submit", function () {
+  const hasAny = ["front", "side", "xray"].some(k => {
+    const f = document.getElementById(cards[k].inp).files[0];
+    return !!f;
+  });
+  if (!hasAny) return; // let server-side validation handle it
+  document.getElementById("runBtn").disabled = true;
+  const parts = [];
+  if (document.getElementById("inp-front").files[0]) parts.push("frontal");
+  if (document.getElementById("inp-side").files[0])  parts.push("side");
+  if (document.getElementById("inp-xray").files[0])  parts.push("X-ray");
+  document.getElementById("loadingMsg").textContent =
+    "Running analysis for: " + (parts.join(", ") || "uploaded images") + "…";
+  document.getElementById("globalLoading").classList.add("active");
+});
+
+/* ── Patient picker ──────────────────────────────── */
+(function () {
+  const patientSelect = document.getElementById("patient_id");
+  const selectedAge   = document.getElementById("selected_age");
+  const selectedGender = document.getElementById("selected_gender");
+  const existingBlock = document.getElementById("existingPatientBlock");
+  const newBlock      = document.getElementById("newPatientBlock");
+  const toggleBtn     = document.getElementById("togglePatientMode");
+  const newFieldIds   = ["new_name", "new_code", "new_age", "new_gender"];
+  let mode = "existing";
+
+  function formatGender(g) {
+    if (!g) return "";
+    return g === "MALE" ? "Male" : g === "FEMALE" ? "Female" : g;
+  }
+
+  function setMode(next) {
+    mode = next;
+    if (mode === "existing") {
+      existingBlock.style.display = "";
+      newBlock.style.display = "none";
+      toggleBtn.textContent = "Switch to new patient";
+      patientSelect.disabled = false;
+      patientSelect.setAttribute("name", "patient_id");
+      newFieldIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = true;
+        el.removeAttribute("required");
+        el.removeAttribute("name");
+      });
+    } else {
+      existingBlock.style.display = "none";
+      newBlock.style.display = "";
+      toggleBtn.textContent = "Switch to existing patient";
+      patientSelect.disabled = true;
+      patientSelect.removeAttribute("name");
+      patientSelect.value = "";
+      selectedAge.value = "";
+      selectedGender.value = "";
+      newFieldIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = false;
+        el.setAttribute("name", id);
+      });
+      document.getElementById("new_name").setAttribute("required", "required");
+    }
+  }
+
+  toggleBtn.addEventListener("click", () => setMode(mode === "existing" ? "new" : "existing"));
+  patientSelect.addEventListener("change", function () {
+    const opt = this.options[this.selectedIndex];
+    selectedAge.value   = opt.dataset.age    || "";
+    selectedGender.value = formatGender(opt.dataset.gender || "");
+  });
+
+  setMode("existing");
+
+  const preselect = new URLSearchParams(window.location.search).get("patient_id");
+  if (preselect && patientSelect) {
+    patientSelect.value = preselect;
+    patientSelect.dispatchEvent(new Event("change"));
+  }
+})();
+</script>
+{% endblock %}

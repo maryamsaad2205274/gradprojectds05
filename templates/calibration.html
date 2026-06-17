@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Facial Calibration Tool</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f4f7fb;
+      color: #1f2937;
+    }
+
+    .wrapper {
+      max-width: 1100px;
+      margin: 30px auto;
+      background: #ffffff;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+    }
+
+    p {
+      margin-top: 0;
+      color: #4b5563;
+    }
+
+    .upload-box,
+    .controls,
+    .results {
+      margin-top: 20px;
+    }
+
+    input[type="file"],
+    input[type="number"],
+    button {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid #d1d5db;
+      font-size: 15px;
+    }
+
+    input[type="number"] {
+      width: 180px;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+      margin-right: 10px;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    button.secondary {
+      background: #6b7280;
+    }
+
+    button.secondary:hover {
+      background: #4b5563;
+    }
+
+    .error {
+      color: #b91c1c;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #eef4ff;
+      color: #1e40af;
+      font-weight: 600;
+    }
+
+    .image-panel {
+      margin-top: 20px;
+      position: relative;
+      display: inline-block;
+      border: 2px solid #dbe3ef;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #fff;
+      max-width: 100%;
+    }
+
+    #mainImage {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      cursor: crosshair;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    #overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+    }
+
+    .controls-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .results {
+      display: none;
+      padding: 18px;
+      border-radius: 14px;
+      background: #f3f8ff;
+      white-space: pre-line;
+      line-height: 1.7;
+      border: 1px solid #dbeafe;
+    }
+
+    .legend {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #374151;
+      line-height: 1.7;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 6px;
+      color: white;
+    }
+
+    .badge-red {
+      background: #dc2626;
+    }
+
+    .badge-blue {
+      background: #2563eb;
+    }
+
+    .badge-green {
+      background: #16a34a;
+    }
+
+    .badge-gray {
+      background: #6b7280;
+    }
+
+    #zoomLens {
+      position: fixed;
+      width: 140px;
+      height: 140px;
+      border: 2px solid #111827;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+      overflow: hidden;
+      display: none;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #zoomCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <h1>Facial Landmark Calibration Tool</h1>
+    <p>
+      Upload an image, place the straight vertical red calibration ruler,
+      enter the known real distance in mm, then click 2 facial points to measure.
+    </p>
+
+    <div class="upload-box">
+      <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="image" accept="image/*" required>
+        <button type="submit">Upload Image</button>
+      </form>
+
+      {% if error %}
+        <div class="error">{{ error }}</div>
+      {% endif %}
+    </div>
+
+    {% if image_url %}
+      <div class="controls">
+        <div class="controls-row">
+          <label for="realDistance"><strong>Known calibration distance (mm):</strong></label>
+          <input type="number" id="realDistance" placeholder="e.g. 10" step="0.01" min="0.01">
+          <button type="button" id="modeCalibration">Calibration Mode</button>
+          <button type="button" id="modeFacial" class="secondary">Facial Measurement Mode</button>
+          <button type="button" id="calculateBtn">Calculate</button>
+          <button type="button" id="resetBtn" class="secondary">Reset</button>
+        </div>
+
+        <div class="status" id="statusText">
+          Current mode: Calibration. Click the top of the vertical red ruler.
+        </div>
+
+        <div class="legend">
+          <span class="badge badge-red">Red</span> vertical calibration ruler
+          <span class="badge badge-blue">Blue</span> facial points
+          <span class="badge badge-green">Green</span> facial measurement line
+          <span class="badge badge-gray">Gray</span> live hover crosshair
+        </div>
+
+        <div class="hint">
+          Move the mouse slowly and use the zoom box for more precise clicking.
+        </div>
+      </div>
+
+      <div class="image-panel" id="imagePanel">
+        <img id="mainImage" src="{{ image_url }}" alt="Uploaded image">
+        <canvas id="overlay"></canvas>
+      </div>
+
+      <div class="results" id="resultBox"></div>
+    {% endif %}
+  </div>
+
+  <div id="zoomLens">
+    <canvas id="zoomCanvas" width="140" height="140"></canvas>
+  </div>
+
+  {% if image_url %}
+  <script>
+    const image = document.getElementById("mainImage");
+    const canvas = document.getElementById("overlay");
+    const ctx = canvas.getContext("2d");
+
+    const zoomLens = document.getElementById("zoomLens");
+    const zoomCanvas = document.getElementById("zoomCanvas");
+    const zoomCtx = zoomCanvas.getContext("2d");
+
+    const statusText = document.getElementById("statusText");
+    const resultBox = document.getElementById("resultBox");
+
+    const modeCalibrationBtn = document.getElementById("modeCalibration");
+    const modeFacialBtn = document.getElementById("modeFacial");
+    const calculateBtn = document.getElementById("calculateBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const realDistanceInput = document.getElementById("realDistance");
+
+    let mode = "calibration";
+    let calibrationPoints = [];
+    let facialPoints = [];
+    let hoverPoint = null;
+
+    function resizeCanvasToImage() {
+      canvas.width = image.clientWidth;
+      canvas.height = image.clientHeight;
+      canvas.style.width = image.clientWidth + "px";
+      canvas.style.height = image.clientHeight + "px";
+      redrawAll();
+    }
+
+    function getImageCoordinates(event) {
+      const rect = image.getBoundingClientRect();
+      const scaleX = image.naturalWidth / rect.width;
+      const scaleY = image.naturalHeight / rect.height;
+
+      const displayX = event.clientX - rect.left;
+      const displayY = event.clientY - rect.top;
+
+      return {
+        displayX: displayX,
+        displayY: displayY,
+        imageX: displayX * scaleX,
+        imageY: displayY * scaleY
+      };
+    }
+
+    function imagePointToCanvasPoint(point) {
+      const scaleX = image.clientWidth / image.naturalWidth;
+      const scaleY = image.clientHeight / image.naturalHeight;
+
+      return {
+        x: point.x * scaleX,
+        y: point.y * scaleY
+      };
+    }
+
+    function drawLine(p1, p2, color, width = 1) {
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+
+    function drawCenterDot(point, color, radius = 1.5) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function drawCrosshair(point, color, size = 7, width = 1) {
+      ctx.beginPath();
+      ctx.moveTo(point.x - size, point.y);
+      ctx.lineTo(point.x + size, point.y);
+      ctx.moveTo(point.x, point.y - size);
+      ctx.lineTo(point.x, point.y + size);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+
+    function drawPreciseMarker(point, color, label) {
+      drawCrosshair(point, color, 7, 1);
+      drawCenterDot(point, color, 1.5);
+
+      ctx.fillStyle = color;
+      ctx.font = "bold 11px Arial";
+      ctx.fillText(label, point.x + 6, point.y - 6);
+    }
+
+    function drawHoverCrosshair(point) {
+      if (!point) return;
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      drawCrosshair(point, "#6b7280", 9, 1);
+      ctx.restore();
+    }
+
+    function drawVerticalRulerTool(start, end) {
+      const p1 = imagePointToCanvasPoint(start);
+      const p2 = imagePointToCanvasPoint(end);
+
+      const x = p1.x;
+      const topY = Math.min(p1.y, p2.y);
+      const bottomY = Math.max(p1.y, p2.y);
+
+      drawLine({x: x, y: topY}, {x: x, y: bottomY}, "#dc2626", 1);
+
+      const tickSpacing = 8;
+      const majorTickEvery = 5;
+
+      let tickIndex = 0;
+      for (let y = topY; y <= bottomY; y += tickSpacing) {
+        const tickLength = (tickIndex % majorTickEvery === 0) ? 8 : 5;
+        drawLine(
+          {x: x - tickLength, y: y},
+          {x: x, y: y},
+          "#dc2626",
+          1
+        );
+        tickIndex++;
+      }
+
+      drawPreciseMarker({x: x, y: topY}, "#dc2626", "C1");
+      drawPreciseMarker({x: x, y: bottomY}, "#dc2626", "C2");
+    }
+
+    function drawFacialMeasurement(start, end) {
+      const p1 = imagePointToCanvasPoint(start);
+      const p2 = imagePointToCanvasPoint(end);
+
+      drawLine(p1, p2, "#16a34a", 1);
+      drawPreciseMarker(p1, "#2563eb", "F1");
+      drawPreciseMarker(p2, "#2563eb", "F2");
+    }
+
+    function redrawAll() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (calibrationPoints.length === 1) {
+        const p = imagePointToCanvasPoint(calibrationPoints[0]);
+        drawPreciseMarker(p, "#dc2626", "C1");
+      }
+
+      if (calibrationPoints.length === 2) {
+        drawVerticalRulerTool(calibrationPoints[0], calibrationPoints[1]);
+      }
+
+      if (facialPoints.length === 1) {
+        const p = imagePointToCanvasPoint(facialPoints[0]);
+        drawPreciseMarker(p, "#2563eb", "F1");
+      }
+
+      if (facialPoints.length === 2) {
+        drawFacialMeasurement(facialPoints[0], facialPoints[1]);
+      }
+
+      if (hoverPoint) {
+        drawHoverCrosshair(hoverPoint);
+      }
+    }
+
+    function updateStatus() {
+      if (mode === "calibration") {
+        if (calibrationPoints.length === 0) {
+          statusText.textContent = "Current mode: Calibration. Click the top of the vertical red ruler.";
+        } else if (calibrationPoints.length === 1) {
+          statusText.textContent = "Current mode: Calibration. Click the bottom of the vertical red ruler. The x-position will stay fixed.";
+        } else {
+          statusText.textContent = "Vertical calibration ruler placed. Switch to Facial Measurement Mode and click 2 facial points.";
+        }
+      } else {
+        if (facialPoints.length === 0) {
+          statusText.textContent = "Current mode: Facial Measurement. Click the first facial point.";
+        } else if (facialPoints.length === 1) {
+          statusText.textContent = "Current mode: Facial Measurement. Click the second facial point.";
+        } else {
+          statusText.textContent = "Facial points selected. Click Calculate to get the measurement.";
+        }
+      }
+    }
+
+    function drawZoomLens(event) {
+      if (!image.naturalWidth || !image.naturalHeight) return;
+
+      const rect = image.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+
+      if (mouseX < 0 || mouseY < 0 || mouseX > rect.width || mouseY > rect.height) {
+        zoomLens.style.display = "none";
+        return;
+      }
+
+      const zoomFactor = 4;
+      const lensSize = 140;
+      const srcSize = lensSize / zoomFactor;
+
+      const scaleX = image.naturalWidth / rect.width;
+      const scaleY = image.naturalHeight / rect.height;
+
+      const srcX = (mouseX * scaleX) - (srcSize / 2);
+      const srcY = (mouseY * scaleY) - (srcSize / 2);
+
+      zoomCtx.clearRect(0, 0, lensSize, lensSize);
+      zoomCtx.drawImage(
+        image,
+        srcX,
+        srcY,
+        srcSize,
+        srcSize,
+        0,
+        0,
+        lensSize,
+        lensSize
+      );
+
+      zoomCtx.beginPath();
+      zoomCtx.moveTo(lensSize / 2, 0);
+      zoomCtx.lineTo(lensSize / 2, lensSize);
+      zoomCtx.moveTo(0, lensSize / 2);
+      zoomCtx.lineTo(lensSize, lensSize / 2);
+      zoomCtx.strokeStyle = "#111827";
+      zoomCtx.lineWidth = 1;
+      zoomCtx.stroke();
+
+      zoomCtx.beginPath();
+      zoomCtx.arc(lensSize / 2, lensSize / 2, 2, 0, Math.PI * 2);
+      zoomCtx.fillStyle = "#dc2626";
+      zoomCtx.fill();
+
+      zoomLens.style.display = "block";
+      zoomLens.style.left = (event.clientX + 20) + "px";
+      zoomLens.style.top = (event.clientY + 20) + "px";
+    }
+
+    image.addEventListener("mousemove", function(event) {
+      const coords = getImageCoordinates(event);
+      hoverPoint = {
+        x: coords.displayX,
+        y: coords.displayY
+      };
+      redrawAll();
+      drawZoomLens(event);
+    });
+
+    image.addEventListener("mouseleave", function() {
+      hoverPoint = null;
+      zoomLens.style.display = "none";
+      redrawAll();
+    });
+
+    image.addEventListener("click", function(event) {
+      if (!image.naturalWidth || !image.naturalHeight) return;
+
+      const coords = getImageCoordinates(event);
+
+      if (mode === "calibration") {
+        if (calibrationPoints.length === 0) {
+          calibrationPoints = [{
+            x: coords.imageX,
+            y: coords.imageY
+          }];
+        } else if (calibrationPoints.length === 1) {
+          calibrationPoints.push({
+            x: calibrationPoints[0].x,
+            y: coords.imageY
+          });
+        } else {
+          calibrationPoints = [{
+            x: coords.imageX,
+            y: coords.imageY
+          }];
+        }
+      } else {
+        const point = {
+          x: coords.imageX,
+          y: coords.imageY
+        };
+
+        if (facialPoints.length < 2) {
+          facialPoints.push(point);
+        } else {
+          facialPoints = [point];
+        }
+      }
+
+      redrawAll();
+      updateStatus();
+    });
+
+    modeCalibrationBtn.addEventListener("click", function() {
+      mode = "calibration";
+      updateStatus();
+    });
+
+    modeFacialBtn.addEventListener("click", function() {
+      mode = "facial";
+      updateStatus();
+    });
+
+    resetBtn.addEventListener("click", function() {
+      calibrationPoints = [];
+      facialPoints = [];
+      hoverPoint = null;
+      resultBox.style.display = "none";
+      resultBox.textContent = "";
+      zoomLens.style.display = "none";
+      mode = "calibration";
+      redrawAll();
+      updateStatus();
+    });
+
+    calculateBtn.addEventListener("click", async function() {
+      const realDistance = realDistanceInput.value;
+
+      const response = await fetch("/calculate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          calibration_points: calibrationPoints,
+          facial_points: facialPoints,
+          real_distance_mm: realDistance
+        })
+      });
+
+      const data = await response.json();
+
+      resultBox.style.display = "block";
+
+      if (!response.ok) {
+        resultBox.textContent = data.error;
+        return;
+      }
+
+      resultBox.textContent =
+        `Calibration pixel distance: ${data.calibration_pixel_distance} px
+Scale factor: ${data.mm_per_pixel} mm/px
+
+Facial pixel distance: ${data.facial_pixel_distance} px
+Facial distance: ${data.facial_distance_mm} mm`;
+    });
+
+    image.onload = resizeCanvasToImage;
+    window.addEventListener("resize", resizeCanvasToImage);
+
+    if (image.complete) {
+      resizeCanvasToImage();
+    }
+
+    updateStatus();
+  </script>
+  {% endif %}
+</body>
+</html>

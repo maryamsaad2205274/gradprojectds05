@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Review Case #{{ case.id }} — DentAlign{% endblock %}
+{% block crumb %}Review{% endblock %}
+
+{% block content %}
+
+<div class="dash-header">
+  <div>
+    <h1 class="lov-page-title" style="margin:0;">Review case #{{ case.id }}</h1>
+    <p class="lov-page-sub">
+      {% if case.patient %}{{ case.patient.name }} · {{ case.patient.patient_code }}{% endif %}
+      · Case date {{ case.display_case_date.strftime('%b %d, %Y') }}
+    </p>
+  </div>
+  <a class="btn btn--ghost" href="{{ url_for('view_result', case_id=case.id) }}">← Back to analysis</a>
+</div>
+
+<div class="lov-card" style="margin-top:20px;">
+  {% if case.patient %}
+  <div class="lov-form-grid" style="margin-bottom:16px;">
+    <div class="lov-field">
+      <label>Patient age</label>
+      <input class="input" type="text" readonly value="{{ case.patient.age if case.patient.age is not none else '—' }}">
+    </div>
+    <div class="lov-field">
+      <label>Gender</label>
+      <input class="input" type="text" readonly value="{% if case.patient.gender == 'MALE' %}Male{% elif case.patient.gender == 'FEMALE' %}Female{% else %}—{% endif %}">
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="POST">
+    <div class="lov-field">
+      <label for="doctor_comment">Doctor comment / feedback for patient</label>
+      <textarea
+        id="doctor_comment"
+        name="doctor_comment"
+        class="patient-notes-textarea"
+        rows="8"
+        placeholder="Write clear, patient-friendly feedback. Mention if you would like to see them again at the next check-up…"
+      >{{ case.doctor_comment or '' }}</textarea>
+    </div>
+
+    <label style="display:flex;align-items:flex-start;gap:10px;margin:16px 0;font-size:0.875rem;cursor:pointer;">
+      <input type="checkbox" name="follow_up_requested" value="1" {% if case.follow_up_requested %}checked{% endif %} style="margin-top:3px;">
+      <span>
+        <strong>Request follow-up visit</strong><br>
+        <span style="color:var(--muted-foreground);font-size:0.8rem;">Patient can book a follow-up from their portal when booking is available.</span>
+      </span>
+    </label>
+
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button type="submit" class="btn btn--primary">Save review</button>
+      <a href="{{ url_for('view_result', case_id=case.id) }}" class="btn btn--ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

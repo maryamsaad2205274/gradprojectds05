@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Orthodontic AI Analysis — DentAlign{% endblock %}
+{% block crumb %}Ortho AI{% endblock %}
+
+{% block extra_head %}
+<style>
+  #imagePreviewBox { display:none; margin-top:1rem; }
+  #previewImg { max-width:100%; max-height:340px; border-radius:8px; border:1px solid var(--border,#e2e8f0); }
+  .ortho-dropzone {
+    border: 2px dashed var(--border, #cbd5e1);
+    border-radius: 10px;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s;
+    background: var(--card, #fff);
+  }
+  .ortho-dropzone:hover { border-color: var(--primary, #6366f1); }
+  .ortho-dropzone svg { margin-bottom:.75rem; opacity:.5; }
+  #loadingOverlay {
+    display:none;
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.5);
+    z-index:9999;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    color:#fff;
+    font-size:1.1rem;
+    gap:1rem;
+  }
+  #loadingOverlay.active { display:flex; }
+  .spinner {
+    width:52px; height:52px;
+    border:5px solid rgba(255,255,255,.3);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: spin .9s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="lov-page-title">Orthodontic AI Analysis</h1>
+<p class="lov-page-sub">Upload a lateral cephalometric X-ray to detect 19 landmarks and receive an AI-assisted diagnosis.</p>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <p>Running AI analysis… this may take 15–30 seconds.</p>
+</div>
+
+<form method="POST" enctype="multipart/form-data" id="orthoForm" action="{{ url_for('ortho_analysis_run') }}">
+
+  <!-- Patient (optional) -->
+  <div class="lov-card" style="margin-bottom:1.5rem;">
+    <div class="lov-card__head">
+      <h2 class="lov-card__title">Patient (optional)</h2>
+    </div>
+    <div class="lov-card__body" style="padding:1.25rem;">
+      <div class="lov-field">
+        <label for="patient_id">Link to existing patient</label>
+        <select name="patient_id" id="patient_id" class="input">
+          <option value="">— No patient selected —</option>
+          {% for p in patients %}
+            <option value="{{ p.id }}">{{ p.patient_code }} — {{ p.name }}{% if p.age is not none %} ({{ p.age }}y){% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- X-ray upload -->
+  <div class="lov-card" style="margin-bottom:1.5rem;">
+    <div class="lov-card__head">
+      <h2 class="lov-card__title">Lateral Cephalometric X-ray</h2>
+    </div>
+    <div class="lov-card__body" style="padding:1.25rem;">
+
+      <div class="ortho-dropzone" id="dropzone" onclick="document.getElementById('xray_image').click()">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 12V4m0 0L8 8m4-4l4 4"/>
+        </svg>
+        <p style="margin:0; font-size:.95rem; color:var(--muted-foreground, #64748b);">Click to select image or drag &amp; drop</p>
+        <p style="margin:.25rem 0 0; font-size:.8rem; color:var(--muted-foreground, #94a3b8);">JPEG, PNG, BMP, TIFF — side-profile X-ray</p>
+      </div>
+      <input type="file" name="xray_image" id="xray_image" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif" style="display:none;" required>
+
+      <div id="imagePreviewBox">
+        <img id="previewImg" src="" alt="X-ray preview">
+        <div style="margin-top:.75rem; display:flex; gap:.75rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn--secondary btn--sm" onclick="changeImage()">Change image</button>
+          <button type="button" class="btn btn--ghost btn--sm" style="color:var(--destructive,#ef4444);" onclick="removeImage()">Remove</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display:flex; gap:1rem; justify-content:flex-end;">
+    <a href="{{ url_for('dashboard') }}" class="btn btn--secondary">Cancel</a>
+    <button type="submit" class="btn btn--primary" id="runBtn" disabled>
+      Run Analysis
+    </button>
+  </div>
+
+</form>
+
+<script>
+const fileInput = document.getElementById('xray_image');
+const dropzone  = document.getElementById('dropzone');
+const previewBox = document.getElementById('imagePreviewBox');
+const previewImg = document.getElementById('previewImg');
+const runBtn    = document.getElementById('runBtn');
+
+fileInput.addEventListener('change', () => showPreview(fileInput.files[0]));
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor='var(--primary,#6366f1)'; });
+dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor=''; });
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.style.borderColor = '';
+  const f = e.dataTransfer.files[0];
+  if (f) { fileInput.files = e.dataTransfer.files; showPreview(f); }
+});
+
+function showPreview(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  dropzone.style.display = 'none';
+  previewBox.style.display = 'block';
+  runBtn.disabled = false;
+}
+
+function changeImage() {
+  fileInput.value = '';
+  previewImg.src = '';
+  dropzone.style.display = 'block';
+  previewBox.style.display = 'none';
+  runBtn.disabled = true;
+  fileInput.click();
+}
+
+function removeImage() {
+  fileInput.value = '';
+  previewImg.src = '';
+  dropzone.style.display = 'block';
+  previewBox.style.display = 'none';
+  runBtn.disabled = true;
+}
+
+document.getElementById('orthoForm').addEventListener('submit', () => {
+  document.getElementById('loadingOverlay').classList.add('active');
+});
+</script>
+{% endblock %}

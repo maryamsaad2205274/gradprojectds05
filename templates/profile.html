@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+
+<div class="s-head">
+  <div>
+    <h1 class="s-title">Settings</h1>
+    <p class="s-sub">Manage your account details and security.</p>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="messages">
+      {% for category, msg in messages %}
+        <div class="msg {{ category }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="s-grid">
+
+  <!-- Account -->
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Account</h2>
+        <p class="panel__sub">Basic account information.</p>
+      </div>
+    </div>
+
+    <div class="s-info">
+      <div class="s-row">
+        <div class="s-key">Email</div>
+        <div class="s-val">{{ user.email }}</div>
+      </div>
+      <div class="s-row">
+        <div class="s-key">Role</div>
+        <div class="s-val">Doctor</div>
+      </div>
+    </div>
+
+    <hr class="s-hr">
+
+    <form method="POST" action="{{ url_for('profile') }}">
+      <input type="hidden" name="action" value="update_name">
+
+      <div class="field">
+        <label>Display Name</label>
+        <input class="input" type="text" name="name" value="{{ user.name }}" required>
+        <div class="field__hint">This name will appear on your dashboard and reports.</div>
+      </div>
+
+      <div class="s-actions">
+        <button class="btn btn--primary" type="submit">Save Changes</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Security -->
+  <div class="panel">
+    <div class="panel__head">
+      <div>
+        <h2 class="panel__title">Security</h2>
+        <p class="panel__sub">Update your password.</p>
+      </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('profile') }}">
+      <input type="hidden" name="action" value="change_password">
+
+      <div class="field">
+        <label>Current Password</label>
+        <input class="input" type="password" name="current_password" required>
+      </div>
+
+      <div class="field">
+        <label>New Password</label>
+        <input class="input" type="password" name="new_password" required>
+        <div class="field__hint">Minimum 6 characters.</div>
+      </div>
+
+      <div class="field">
+        <label>Confirm New Password</label>
+        <input class="input" type="password" name="confirm_password" required>
+      </div>
+
+      <div class="s-actions">
+        <button class="btn btn--primary" type="submit">Update Password</button>
+        <a class="btn btn--ghost" href="{{ url_for('logout') }}">Logout</a>
+      </div>
+    </form>
+  </div>
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Preferences</h2>
+      <p class="panel__sub">Customize your experience.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('profile') }}">
+    <input type="hidden" name="action" value="preferences">
+
+    <div class="row2">
+      <div class="field">
+        <label>Theme</label>
+        <select class="input" name="theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Language</label>
+        <select class="input" name="lang">
+          <option value="en">English</option>
+          <option value="ar">Arabic</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Save Preferences</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="panel__head">
+    <div>
+      <h2 class="panel__title">Notifications</h2>
+      <p class="panel__sub">Control email alerts.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('profile') }}">
+    <input type="hidden" name="action" value="notifications">
+
+    <label class="check">
+      <input type="checkbox" name="email_reports" checked>
+      <span>Send me email when a report is generated</span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="email_updates">
+      <span>Send product updates</span>
+    </label>
+
+    <div class="p-actions">
+      <button class="btn btn--primary" type="submit">Update Notifications</button>
+    </div>
+  </form>
+</div>
+
+
+</div>
+
+{% endblock %}
