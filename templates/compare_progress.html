@@ -1,0 +1,918 @@
+{% extends "base.html" %}
+{% block title %}Progress Comparison — {{ patient.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  .cp-head { display:flex; align-items:flex-start; justify-content:space-between;
+             flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
+  .cp-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:2rem; }
+  @media(max-width:820px){ .cp-grid{ grid-template-columns:1fr; } }
+
+  /* ── Cards & panels ──────────────────────────────────────────────── */
+  .cp-panel { background:var(--surface); border:1px solid var(--border);
+              border-radius:12px; padding:1.25rem; }
+  .cp-panel__label { font-size:.7rem; font-weight:700; letter-spacing:.08em;
+                     text-transform:uppercase; color:var(--text-muted); margin-bottom:.4rem; }
+  .cp-panel__title { font-size:1rem; font-weight:600; color:var(--text-primary);
+                     margin-bottom:.75rem; }
+
+  /* ── Type-selection cards ────────────────────────────────────────── */
+  .cp-type-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem;
+                  margin-bottom:2rem; }
+  @media(max-width:720px){ .cp-type-grid{ grid-template-columns:1fr; } }
+  .cp-type-card { border:2px solid var(--border); border-radius:14px;
+                  padding:1.5rem 1.25rem; text-align:center; text-decoration:none;
+                  color:var(--text-primary); background:var(--surface);
+                  display:flex; flex-direction:column; align-items:center;
+                  gap:.6rem; transition:border-color .2s, box-shadow .2s; }
+  .cp-type-card:hover:not(.cp-type-card--disabled) {
+    border-color:var(--primary,#6366f1); box-shadow:0 0 0 3px rgba(99,102,241,.15); }
+  .cp-type-card--disabled { opacity:.45; cursor:not-allowed; pointer-events:none; }
+  .cp-type-card__icon { font-size:2rem; }
+  .cp-type-card__name { font-size:.95rem; font-weight:700; }
+  .cp-type-card__desc { font-size:.8rem; color:var(--text-muted); }
+  .cp-type-card__badge { font-size:.7rem; padding:.2rem .6rem; border-radius:999px;
+                         font-weight:600; }
+  .badge-ok  { background:#dcfce7; color:#15803d; }
+  .badge-no  { background:#f1f5f9; color:#94a3b8; }
+
+  /* ── Images ──────────────────────────────────────────────────────── */
+  .cp-overlay { width:100%; border-radius:8px; object-fit:contain;
+                max-height:320px; background:var(--surface-alt); display:block; }
+  .cp-overlay-placeholder { width:100%; height:120px; border-radius:8px;
+    background:var(--surface-alt); display:flex; align-items:center;
+    justify-content:center; color:var(--text-muted); font-size:.82rem; }
+
+  /* ── Measurement lists ───────────────────────────────────────────── */
+  .cp-meas-list { list-style:none; padding:0; margin:.6rem 0 0;
+                  display:flex; flex-direction:column; gap:.3rem; }
+  .cp-meas-list li { display:flex; justify-content:space-between; font-size:.82rem;
+                     padding:.25rem .5rem; border-radius:6px; background:var(--surface-alt); }
+  .cp-meas-list li span:first-child { color:var(--text-secondary); }
+  .cp-meas-list li span:last-child  { font-weight:600; color:var(--text-primary); }
+
+  /* ── Section title ───────────────────────────────────────────────── */
+  .cp-section-title { font-size:.95rem; font-weight:700; margin-bottom:.75rem;
+                      color:var(--text-primary); }
+  .cp-section-subtitle { font-size:.8rem; color:var(--text-muted); font-weight:600;
+                         text-transform:uppercase; letter-spacing:.06em; margin-bottom:.4rem; }
+
+  /* ── Comparison table ────────────────────────────────────────────── */
+  .cp-table-wrap { overflow-x:auto; margin-bottom:2rem; }
+  .cp-table { width:100%; border-collapse:collapse; font-size:.83rem; }
+  .cp-table th { text-align:left; padding:.5rem .75rem; background:var(--surface-alt);
+                 color:var(--text-muted); font-weight:600; font-size:.7rem;
+                 text-transform:uppercase; letter-spacing:.06em;
+                 border-bottom:1px solid var(--border); }
+  .cp-table td { padding:.5rem .75rem; border-bottom:1px solid var(--border);
+                 color:var(--text-secondary); vertical-align:middle; }
+  .cp-table tr:last-child td { border-bottom:none; }
+  .dir-improved { color:#22c55e; font-weight:700; }
+  .dir-worsened { color:#ef4444; font-weight:700; }
+  .dir-stable   { color:var(--text-muted); }
+  .dir-changed  { color:#f59e0b; font-weight:700; }
+  .dir-na       { color:var(--text-muted); font-style:italic; }
+
+  /* ── Summary box ─────────────────────────────────────────────────── */
+  .cp-summary { background:var(--surface); border:1px solid var(--border);
+                border-radius:12px; padding:1.25rem; margin-bottom:2rem; }
+  .cp-summary__counts { display:flex; gap:2rem; flex-wrap:wrap; margin:.75rem 0; }
+  .cp-summary__count { text-align:center; }
+  .cp-summary__count-val   { font-size:1.6rem; font-weight:700; }
+  .cp-summary__count-label { font-size:.75rem; color:var(--text-muted); }
+
+  /* ── Notes ───────────────────────────────────────────────────────── */
+  .cp-notes { background:var(--surface); border:1px solid var(--border);
+              border-radius:12px; padding:1.25rem; margin-bottom:2rem; }
+
+  /* ── Upload form ─────────────────────────────────────────────────── */
+  .cp-upload-form { display:flex; flex-direction:column; gap:.75rem; }
+  .cp-upload-form label { font-size:.82rem; color:var(--text-secondary);
+                          font-weight:600; margin-bottom:.15rem; display:block; }
+  .cp-upload-form input[type=date] { width:100%; font-size:.85rem; }
+
+  /* ── Drag-drop zone ─────────────────────────────────────────────── */
+  .cp-drop-zone {
+    border: 2px dashed #93c5fd;
+    border-radius: 12px;
+    background: #eff6ff;
+    padding: 2rem 1.25rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    user-select: none;
+  }
+  .cp-drop-zone:hover, .cp-drop-zone--dragover {
+    border-color: var(--primary, #6366f1);
+    background: #eef2ff;
+  }
+  .cp-drop-zone__icon { font-size: 2.2rem; line-height:1; margin-bottom:.5rem; display:block; pointer-events:none; }
+  .cp-drop-zone__text { font-size:.9rem; font-weight:600; color:var(--text-primary); pointer-events:none; }
+  .cp-drop-zone__sub  { font-size:.75rem; color:var(--text-muted); margin-top:.25rem; pointer-events:none; }
+  .cp-drop-preview { display:none; flex-direction:column; gap:.5rem; margin-top:.75rem; }
+  .cp-drop-preview img { width:100%; max-height:280px; object-fit:contain; border-radius:8px; display:block; }
+  .cp-drop-preview__meta { font-size:.8rem; color:var(--text-secondary);
+                            display:flex; align-items:center; justify-content:space-between;
+                            flex-wrap:wrap; gap:.4rem; }
+  .cp-drop-preview__actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+  .cp-file-error { display:none; padding:.4rem .75rem; background:#fef2f2;
+                   border:1px solid #fecaca; border-radius:6px;
+                   color:#991b1b; font-size:.8rem; margin-top:.4rem; }
+
+  /* ── Alerts ──────────────────────────────────────────────────────── */
+  .alert { padding:.65rem 1rem; border-radius:8px; font-size:.85rem; margin-bottom:1rem; }
+  .alert--info    { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+  .alert--success { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+  .alert--error   { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+  .alert--warning { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+
+  /* ── Diagnosis mini-cards ────────────────────────────────────────── */
+  .cp-diag-card { background:var(--surface-alt); border-radius:8px;
+                  padding:.6rem .8rem; margin-top:.5rem; font-size:.82rem; }
+  .cp-diag-card strong { color:var(--text-primary); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Common header ────────────────────────────────────────────────────────── #}
+<div class="cp-head">
+  <div>
+    <h1 class="p-title">Progress Comparison</h1>
+    <p class="p-sub">Patient: <strong>{{ patient.name }}</strong>
+      &mdash; Code: <strong>{{ patient.patient_code }}</strong></p>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+    <a class="btn btn--ghost btn--small"
+       href="{{ url_for('patient_cases', patient_id=patient.id) }}">← Patient Cases</a>
+    <a class="btn btn--ghost btn--small"
+       href="{{ url_for('view_result', case_id=baseline_case.id) }}">Open Baseline Case</a>
+    {% if mode == "view" and new_case is defined and new_case %}
+      <a class="btn btn--ghost btn--small"
+         href="{{ url_for('view_result', case_id=new_case.id) }}">Open Progress Case</a>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Flash messages ───────────────────────────────────────────────────────── #}
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in msgs %}
+    <div class="alert alert--{{ cat if cat != 'message' else 'info' }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+
+{# ════════════════════════════════════════════════════════════════════════════
+   MODE: SELECT — pick which analysis type to compare
+   ════════════════════════════════════════════════════════════════════════════ #}
+{% if mode == "select" %}
+
+  <p style="color:var(--text-secondary);margin-bottom:1.25rem;">
+    Select the analysis type you want to compare between the baseline case and new photos.
+    Only analysis types that have existing baseline data are available.
+  </p>
+
+  <div class="cp-type-grid">
+
+    {# Side Profile #}
+    {% if has_side_data %}
+      <a class="cp-type-card"
+         href="{{ url_for('compare_progress', patient_id=patient.id, case_id=baseline_case.id) }}?type=side">
+        <div class="cp-type-card__icon">📐</div>
+        <div class="cp-type-card__name">Side Profile Analysis</div>
+        <div class="cp-type-card__desc">Compare the 4 side-view cephalometric angles against reference ranges.</div>
+        <span class="cp-type-card__badge badge-ok">Baseline data available</span>
+      </a>
+    {% else %}
+      <div class="cp-type-card cp-type-card--disabled">
+        <div class="cp-type-card__icon">📐</div>
+        <div class="cp-type-card__name">Side Profile Analysis</div>
+        <div class="cp-type-card__desc">This baseline case does not contain side profile analysis data.</div>
+        <span class="cp-type-card__badge badge-no">No baseline data</span>
+      </div>
+    {% endif %}
+
+    {# Frontal #}
+    {% if has_front_data %}
+      <a class="cp-type-card"
+         href="{{ url_for('compare_progress', patient_id=patient.id, case_id=baseline_case.id) }}?type=front">
+        <div class="cp-type-card__icon">🪞</div>
+        <div class="cp-type-card__name">Frontal Analysis</div>
+        <div class="cp-type-card__desc">Compare frontal facial measurements and symmetry indices.</div>
+        <span class="cp-type-card__badge badge-ok">Baseline data available</span>
+      </a>
+    {% else %}
+      <div class="cp-type-card cp-type-card--disabled">
+        <div class="cp-type-card__icon">🪞</div>
+        <div class="cp-type-card__name">Frontal Analysis</div>
+        <div class="cp-type-card__desc">This baseline case does not contain frontal analysis data.</div>
+        <span class="cp-type-card__badge badge-no">No baseline data</span>
+      </div>
+    {% endif %}
+
+    {# X-ray #}
+    {% if has_xray_data %}
+      <a class="cp-type-card"
+         href="{{ url_for('compare_progress', patient_id=patient.id, case_id=baseline_case.id) }}?type=xray">
+        <div class="cp-type-card__icon">🦷</div>
+        <div class="cp-type-card__name">X-ray Analysis</div>
+        <div class="cp-type-card__desc">Compare AI-predicted X-ray classifications between visits.</div>
+        <span class="cp-type-card__badge badge-ok">Baseline data available</span>
+      </a>
+    {% else %}
+      <div class="cp-type-card cp-type-card--disabled">
+        <div class="cp-type-card__icon">🦷</div>
+        <div class="cp-type-card__name">X-ray Analysis</div>
+        <div class="cp-type-card__desc">This baseline case does not contain X-ray analysis data.</div>
+        <span class="cp-type-card__badge badge-no">No baseline data</span>
+      </div>
+    {% endif %}
+
+  </div>
+
+  {% if not has_side_data and not has_front_data and not has_xray_data %}
+    <div class="alert alert--warning">
+      This baseline case has no comparable analysis data. Run a full analysis first, then return here to compare progress.
+    </div>
+  {% endif %}
+
+
+{# ════════════════════════════════════════════════════════════════════════════
+   MODE: UPLOAD — show baseline + upload form for chosen analysis type
+   ════════════════════════════════════════════════════════════════════════════ #}
+{% elif mode == "upload" %}
+
+  {# ── Analysis type label ── #}
+  {% if analysis_type == "side" %}
+    {% set type_label = "Side Profile" %}
+  {% elif analysis_type == "front" %}
+    {% set type_label = "Frontal" %}
+  {% else %}
+    {% set type_label = "X-ray" %}
+  {% endif %}
+
+  <div class="alert alert--info" style="margin-bottom:1.25rem;">
+    Comparing <strong>{{ type_label }} Analysis</strong> against baseline Case #{{ baseline_case.id }}.
+    Upload a new {{ type_label | lower }} image below. Models are <strong>not</strong> retrained — the existing pipeline is reused.
+  </div>
+
+  <div class="cp-grid">
+
+    {# ── Left: Baseline display ── #}
+    <div class="cp-panel">
+      <div class="cp-panel__label">Baseline (read-only)</div>
+      <div class="cp-panel__title">
+        Case #{{ baseline_case.id }}
+        &mdash; {{ baseline_case.case_date.strftime("%Y-%m-%d") if baseline_case.case_date else "Date N/A" }}
+      </div>
+
+      {% if analysis_type == "side" %}
+        {% if baseline_side_overlay %}
+          <img src="{{ baseline_side_overlay }}" alt="Baseline side overlay" class="cp-overlay" style="margin-bottom:.75rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.75rem;">No overlay saved</div>
+        {% endif %}
+        {% if baseline_side_cards %}
+          <div class="cp-section-subtitle">Measurements</div>
+          <ul class="cp-meas-list">
+            {% for card in baseline_side_cards %}
+              <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if baseline_side_diag %}
+          <div class="cp-diag-card" style="margin-top:.75rem;">
+            <div class="cp-section-subtitle">Saved Diagnosis</div>
+            {% if baseline_side_diag.diagnosis_label %}
+              <div><strong>{{ baseline_side_diag.diagnosis_label }}</strong>
+                {% if baseline_side_diag.diagnosis_confidence %}
+                  <span style="color:var(--text-muted);font-size:.78rem;">
+                    ({{ "%.0f"|format(baseline_side_diag.diagnosis_confidence) }}% confidence)
+                  </span>
+                {% endif %}
+              </div>
+            {% endif %}
+            {% if baseline_side_diag.growth_stage %}
+              <div style="font-size:.8rem;color:var(--text-muted);margin-top:.25rem;">
+                Growth stage: {{ baseline_side_diag.growth_stage }}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+      {% elif analysis_type == "front" %}
+        {% if baseline_front_overlay %}
+          <img src="{{ baseline_front_overlay }}" alt="Baseline frontal overlay" class="cp-overlay" style="margin-bottom:.75rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.75rem;">No overlay saved</div>
+        {% endif %}
+        {% if baseline_front_cards %}
+          <div class="cp-section-subtitle">Measurements</div>
+          <ul class="cp-meas-list">
+            {% for card in baseline_front_cards %}
+              <li><span>{{ card.name if card.name else card.label }}</span>
+                  <span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if baseline_front_diag %}
+          <div class="cp-diag-card" style="margin-top:.75rem;">
+            <div class="cp-section-subtitle">Saved Frontal Diagnosis</div>
+            {% set fdiag = baseline_front_diag.results_json | from_json if baseline_front_diag.results_json else {} %}
+            {% for k, v in fdiag.items() %}
+              {% if v is mapping %}
+                <div style="font-size:.8rem;margin:.2rem 0;">
+                  <strong>{{ k }}</strong>: {{ v.diagnosis or v.label or "—" }}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+
+      {% else %}{# xray #}
+        {% if baseline_xray_overlay %}
+          <img src="{{ baseline_xray_overlay }}" alt="Baseline X-ray overlay" class="cp-overlay" style="margin-bottom:.75rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.75rem;">No X-ray overlay saved</div>
+        {% endif %}
+        {% if baseline_xray_cards %}
+          <div class="cp-section-subtitle">Cephalometric Angles</div>
+          <ul class="cp-meas-list">
+            {% for card in baseline_xray_cards[:8] %}
+              <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if baseline_xray_diag and baseline_xray_diag.all_results %}
+          <div class="cp-section-subtitle" style="margin-top:.75rem;">AI Predictions</div>
+          {% for r in baseline_xray_diag.all_results %}
+            <div class="cp-diag-card">
+              <strong>{{ r.display_name }}</strong>: {{ r.prediction or r.label or "—" }}
+              {% if r.confidence %}
+                <span style="color:var(--text-muted);font-size:.78rem;">
+                  ({{ "%.0f"|format(r.confidence) }}%)
+                </span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {# ── Right: Upload form ── #}
+    <div class="cp-panel">
+      <div class="cp-panel__label">New Progress Photo</div>
+      <div class="cp-panel__title">Upload to Compare</div>
+
+      <form method="POST" enctype="multipart/form-data" class="cp-upload-form"
+            action="{{ url_for('compare_progress', patient_id=patient.id, case_id=baseline_case.id) }}"
+            id="cp-upload-form">
+        <input type="hidden" name="analysis_type" value="{{ analysis_type }}">
+
+        <div>
+          <label for="cp-date">Analysis Date <span style="color:#ef4444;">*</span></label>
+          <input type="date" id="cp-date" name="case_date"
+                 value="{{ today_iso }}" required>
+        </div>
+
+        {# Hidden real file input — id/name unchanged so backend validation works #}
+        {% if analysis_type == "side" %}
+          <input type="file" id="cp-side" name="side" accept="image/jpeg,image/jpg,image/png"
+                 style="display:none;" required>
+        {% elif analysis_type == "front" %}
+          <input type="file" id="cp-front" name="front_ns" accept="image/jpeg,image/jpg,image/png"
+                 style="display:none;" required>
+        {% else %}
+          <input type="file" id="cp-xray" name="xray" accept="image/jpeg,image/jpg,image/png"
+                 style="display:none;" required>
+        {% endif %}
+
+        {# Drag-drop card #}
+        <div>
+          <label style="margin-bottom:.4rem;">
+            {% if analysis_type == "side" %}Side Profile Image
+            {% elif analysis_type == "front" %}Frontal Photo
+            {% else %}X-ray Image{% endif %}
+            <span style="color:#ef4444;">*</span>
+          </label>
+
+          <div class="cp-drop-zone" id="cp-drop-zone">
+            <span class="cp-drop-zone__icon">📷</span>
+            <div class="cp-drop-zone__text">Click or drag image here</div>
+            <div class="cp-drop-zone__sub">JPG, PNG</div>
+
+            <div class="cp-drop-preview" id="cp-drop-preview">
+              <img id="cp-preview-img" src="" alt="Preview">
+              <div class="cp-drop-preview__meta">
+                <span id="cp-preview-meta"></span>
+                <div class="cp-drop-preview__actions">
+                  <button type="button" class="btn btn--ghost btn--small" id="cp-change-btn">Change Image</button>
+                  <button type="button" class="btn btn--ghost btn--small" id="cp-remove-btn"
+                          style="color:#ef4444;">Remove Image</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cp-file-error" id="cp-file-error"></div>
+        </div>
+
+        <div style="margin-top:.5rem;">
+          <button type="submit" class="btn btn--primary" id="cp-submit-btn">
+            Run Progress Analysis
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+{# ════════════════════════════════════════════════════════════════════════════
+   MODE: VIEW — saved comparison (no rerun)
+   ════════════════════════════════════════════════════════════════════════════ #}
+{% elif mode == "view" %}
+
+  {# ── Analysis type label ── #}
+  {% if analysis_type == "side" %}
+    {% set type_label = "Side Profile" %}
+  {% elif analysis_type == "front" %}
+    {% set type_label = "Frontal" %}
+  {% elif analysis_type == "xray" %}
+    {% set type_label = "X-ray" %}
+  {% else %}
+    {% set type_label = "Unknown" %}
+  {% endif %}
+
+  <div class="alert alert--info" style="margin-bottom:1.25rem;">
+    <strong>{{ type_label }} Progress Comparison</strong> &mdash;
+    Baseline Case #{{ baseline_case.id }}
+    vs Progress Case #{{ new_case.id if new_case else "N/A" }}.
+    Saved {{ comparison.created_at.strftime("%Y-%m-%d %H:%M") }}.
+  </div>
+
+  {# ── Side-by-side image/summary panels ── #}
+  <div class="cp-grid">
+    {# Baseline panel #}
+    <div class="cp-panel">
+      <div class="cp-panel__label">Baseline</div>
+      <div class="cp-panel__title">
+        Case #{{ baseline_case.id }}
+        &mdash; {{ baseline_case.case_date.strftime("%Y-%m-%d") if baseline_case.case_date else "Date N/A" }}
+      </div>
+      {% if analysis_type == "side" %}
+        {% if baseline_side_overlay %}
+          <img src="{{ baseline_side_overlay }}" alt="Baseline side" class="cp-overlay" style="margin-bottom:.6rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No overlay</div>
+        {% endif %}
+        {% if baseline_side_cards %}
+          <ul class="cp-meas-list">
+            {% for card in baseline_side_cards %}
+              <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if baseline_side_diag and baseline_side_diag.diagnosis_label %}
+          <div class="cp-diag-card" style="margin-top:.5rem;">
+            <div class="cp-section-subtitle">Diagnosis</div>
+            <strong>{{ baseline_side_diag.diagnosis_label }}</strong>
+          </div>
+        {% endif %}
+
+      {% elif analysis_type == "front" %}
+        {% if baseline_front_overlay %}
+          <img src="{{ baseline_front_overlay }}" alt="Baseline frontal" class="cp-overlay" style="margin-bottom:.6rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No overlay</div>
+        {% endif %}
+        {% if baseline_front_cards %}
+          <ul class="cp-meas-list">
+            {% for card in baseline_front_cards %}
+              <li><span>{{ card.name if card.name else card.label }}</span>
+                  <span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+      {% else %}{# xray #}
+        {% if baseline_xray_overlay %}
+          <img src="{{ baseline_xray_overlay }}" alt="Baseline X-ray" class="cp-overlay" style="margin-bottom:.6rem;">
+        {% else %}
+          <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No X-ray overlay</div>
+        {% endif %}
+        {% if baseline_xray_cards %}
+          <ul class="cp-meas-list">
+            {% for card in baseline_xray_cards[:6] %}
+              <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {# Progress panel #}
+    <div class="cp-panel">
+      <div class="cp-panel__label">Progress</div>
+      {% if new_case %}
+        <div class="cp-panel__title">
+          Case #{{ new_case.id }}
+          &mdash; {{ new_case.case_date.strftime("%Y-%m-%d") if new_case.case_date else "Date N/A" }}
+        </div>
+        {% if analysis_type == "side" %}
+          {% if new_side_overlay %}
+            <img src="{{ new_side_overlay }}" alt="Progress side" class="cp-overlay" style="margin-bottom:.6rem;">
+          {% else %}
+            <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No overlay</div>
+          {% endif %}
+          {% if new_side_cards %}
+            <ul class="cp-meas-list">
+              {% for card in new_side_cards %}
+                <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+          {% if new_side_diag and new_side_diag.diagnosis_label %}
+            <div class="cp-diag-card" style="margin-top:.5rem;">
+              <div class="cp-section-subtitle">Diagnosis</div>
+              <strong>{{ new_side_diag.diagnosis_label }}</strong>
+            </div>
+          {% endif %}
+
+        {% elif analysis_type == "front" %}
+          {% if new_front_overlay %}
+            <img src="{{ new_front_overlay }}" alt="Progress frontal" class="cp-overlay" style="margin-bottom:.6rem;">
+          {% else %}
+            <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No overlay</div>
+          {% endif %}
+          {% if new_front_cards %}
+            <ul class="cp-meas-list">
+              {% for card in new_front_cards %}
+                <li><span>{{ card.name if card.name else card.label }}</span>
+                    <span>{{ card.value }}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+
+        {% else %}{# xray #}
+          {% if new_xray_overlay %}
+            <img src="{{ new_xray_overlay }}" alt="Progress X-ray" class="cp-overlay" style="margin-bottom:.6rem;">
+          {% else %}
+            <div class="cp-overlay-placeholder" style="margin-bottom:.6rem;">No X-ray overlay</div>
+          {% endif %}
+          {% if new_xray_cards %}
+            <ul class="cp-meas-list">
+              {% for card in new_xray_cards[:6] %}
+                <li><span>{{ card.name }}</span><span>{{ card.value }}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endif %}
+      {% else %}
+        <div class="cp-panel__title" style="color:var(--text-muted);">Progress case unavailable</div>
+        <div class="cp-overlay-placeholder">No data</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Comparison table ── #}
+  {% if main_rows %}
+    <h2 class="cp-section-title" style="margin-bottom:.75rem;">
+      Measurement Comparison{% if analysis_type == "xray" %} — AI Prediction Changes{% endif %}
+    </h2>
+    <div class="cp-table-wrap">
+
+      {# Numeric measurement table (side / frontal) #}
+      {% if analysis_type in ("side", "front") %}
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Measurement</th>
+              <th>Baseline Value</th>
+              <th>Baseline Status</th>
+              <th>Progress Value</th>
+              <th>Progress Status</th>
+              <th>Change</th>
+              <th>Reference Range</th>
+              <th>Progress Assessment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in main_rows %}
+              {% if row is mapping %}
+                {% set pxonly = row.get("pixel_only") %}
+                <tr {% if pxonly %}style="opacity:.6;"{% endif %}>
+                  <td>
+                    {{ row.get("name", "—") }}
+                    {% if pxonly %}
+                      <span style="font-size:.72rem;color:var(--text-muted);">(px, scale-dependent)</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% set bv = row.get("baseline_value") %}
+                    {{ bv if bv is not none else "—" }}{{ " " + row.get("unit","") if bv is not none and row.get("unit") else "" }}
+                  </td>
+                  <td>{{ row.get("baseline_status") or "—" }}</td>
+                  <td>
+                    {% set nv = row.get("new_value") %}
+                    {{ nv if nv is not none else "—" }}{{ " " + row.get("unit","") if nv is not none and row.get("unit") else "" }}
+                  </td>
+                  <td>{{ row.get("new_status") or "—" }}</td>
+                  <td>
+                    {% set d = row.get("diff") %}
+                    {% set u = row.get("unit","") %}
+                    {% if d is not none %}
+                      {% if d > 0 %}+{{ "%.1f"|format(d) }}{{ u }}
+                      {% elif d < 0 %}{{ "%.1f"|format(d) }}{{ u }}
+                      {% else %}0{% endif %}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td style="font-size:.78rem;">{{ row.get("normal_range") or "—" }}</td>
+                  <td>
+                    {% if pxonly %}
+                      <span class="dir-na">Not scored</span>
+                    {% else %}
+                      {% set mv = row.get("ref_movement", "") %}
+                      {% if mv in ("remained_in_range", "moved_into_range", "moved_closer") %}
+                        <span class="dir-improved">▲ {{ row.get("ref_label", "Improved") }}</span>
+                      {% elif mv in ("moved_out_of_range", "moved_further") %}
+                        <span class="dir-worsened">▼ {{ row.get("ref_label", "Worsened") }}</span>
+                      {% elif mv == "no_meaningful_change" %}
+                        <span class="dir-stable">— {{ row.get("ref_label", "No meaningful change") }}</span>
+                      {% else %}
+                        <span class="dir-na">{{ row.get("ref_label") or "N/A" }}</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+
+      {# X-ray prediction table #}
+      {% elif analysis_type == "xray" %}
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Task / Diagnosis</th>
+              <th>Baseline Prediction</th>
+              <th>Baseline Confidence</th>
+              <th>Progress Prediction</th>
+              <th>Progress Confidence</th>
+              <th>Confidence Trend</th>
+              <th>Assessment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in main_rows %}
+              {% if row is mapping %}
+                <tr>
+                  <td>{{ row.get("name", "—") }}</td>
+                  <td>{{ row.get("baseline_prediction", "—") }}</td>
+                  <td>
+                    {% set bc = row.get("baseline_confidence") %}
+                    {{ "%.0f"|format(bc) ~ "%" if bc is not none else "—" }}
+                  </td>
+                  <td>{{ row.get("new_prediction", "—") }}</td>
+                  <td>
+                    {% set nc = row.get("new_confidence") %}
+                    {{ "%.0f"|format(nc) ~ "%" if nc is not none else "—" }}
+                  </td>
+                  <td>
+                    {% set cm = row.get("conf_movement") %}
+                    {% if cm == "increased" %}<span style="color:#22c55e;">↑ Increased</span>
+                    {% elif cm == "decreased" %}<span style="color:#ef4444;">↓ Decreased</span>
+                    {% elif cm == "stable" %}<span class="dir-stable">— Stable</span>
+                    {% else %}<span class="dir-na">N/A</span>{% endif %}
+                  </td>
+                  <td>
+                    {% set mv = row.get("movement", "") %}
+                    {% if mv == "unchanged" %}
+                      <span class="dir-stable">Prediction remained the same</span>
+                    {% elif mv == "changed" %}
+                      <span class="dir-changed">⚠ {{ row.get("movement_label", "Prediction changed") }}</span>
+                    {% elif mv == "data_missing" %}
+                      <span class="dir-na">Not enough comparable data</span>
+                    {% else %}
+                      <span class="dir-na">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+
+  {% else %}
+    <div class="alert alert--warning">
+      {% if analysis_type == "xray" %}
+        No comparable X-ray prediction data found. The analysis may have failed or the saved data could not be loaded.
+      {% else %}
+        No comparable measurements were found. The analysis may not have produced landmarks for one or both cases.
+      {% endif %}
+      {% if new_case %}
+        The linked cases are still available:
+        <a href="{{ url_for('view_result', case_id=baseline_case.id) }}">Baseline #{{ baseline_case.id }}</a>
+        and
+        <a href="{{ url_for('view_result', case_id=new_case.id) }}">Progress #{{ new_case.id }}</a>.
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# ── Summary ── #}
+  {% if summary_data %}
+    <div class="cp-summary">
+      <div class="cp-section-title">Clinical Summary</div>
+      {% if analysis_type in ("side", "front") %}
+        <div class="cp-summary__counts">
+          <div class="cp-summary__count">
+            <div class="cp-summary__count-val" style="color:#22c55e;">
+              {{ summary_data.get("improved", 0) }}
+            </div>
+            <div class="cp-summary__count-label">Moved closer to / within range</div>
+          </div>
+          <div class="cp-summary__count">
+            <div class="cp-summary__count-val" style="color:#ef4444;">
+              {{ summary_data.get("worsened", 0) }}
+            </div>
+            <div class="cp-summary__count-label">Moved farther from range</div>
+          </div>
+          <div class="cp-summary__count">
+            <div class="cp-summary__count-val" style="color:var(--text-muted);">
+              {{ summary_data.get("stable", 0) }}
+            </div>
+            <div class="cp-summary__count-label">No meaningful change</div>
+          </div>
+        </div>
+      {% else %}{# xray #}
+        <div class="cp-summary__counts">
+          <div class="cp-summary__count">
+            <div class="cp-summary__count-val" style="color:#f59e0b;">
+              {{ summary_data.get("changed", 0) }}
+            </div>
+            <div class="cp-summary__count-label">Predictions changed</div>
+          </div>
+          <div class="cp-summary__count">
+            <div class="cp-summary__count-val" style="color:var(--text-muted);">
+              {{ summary_data.get("unchanged", 0) }}
+            </div>
+            <div class="cp-summary__count-label">Predictions unchanged</div>
+          </div>
+        </div>
+      {% endif %}
+      {% if summary_data.get("overall_note") %}
+        <p style="font-size:.88rem;color:var(--text-secondary);margin:.5rem 0 0;">
+          {{ summary_data.overall_note }}
+        </p>
+      {% endif %}
+      {% if summary_data.get("disclaimer") %}
+        <p style="font-size:.78rem;color:var(--text-muted);margin:.5rem 0 0;font-style:italic;">
+          {{ summary_data.disclaimer }}
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {# ── Doctor notes ── #}
+  <div class="cp-notes">
+    <div class="cp-section-title">Doctor Notes</div>
+    <form method="POST"
+          action="{{ url_for('save_comparison_notes', comparison_id=comparison.id) }}">
+      <textarea name="doctor_notes" rows="4"
+        style="width:100%;font-size:.85rem;padding:.5rem .75rem;border-radius:8px;
+               border:1px solid var(--border);background:var(--surface-alt);
+               color:var(--text-primary);resize:vertical;"
+        placeholder="Add clinical notes about this comparison…">{{ comparison.doctor_notes or "" }}</textarea>
+      <div style="margin-top:.5rem;">
+        <button type="submit" class="btn btn--primary btn--small">Save Notes</button>
+      </div>
+    </form>
+  </div>
+
+{% endif %}{# end mode checks #}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function(){
+  var form = document.getElementById("cp-upload-form");
+  if (!form) return;
+
+  var submitBtn  = document.getElementById("cp-submit-btn");
+  var dropZone   = document.getElementById("cp-drop-zone");
+  var dropPreview= document.getElementById("cp-drop-preview");
+  var previewImg = document.getElementById("cp-preview-img");
+  var previewMeta= document.getElementById("cp-preview-meta");
+  var changeBtn  = document.getElementById("cp-change-btn");
+  var removeBtn  = document.getElementById("cp-remove-btn");
+  var errorEl    = document.getElementById("cp-file-error");
+  var fileInput  = form.querySelector("input[type=file]");
+
+  if (!dropZone || !fileInput) return;
+
+  var ALLOWED = ["image/jpeg", "image/jpg", "image/png"];
+
+  /* Disable submit until a valid file is chosen */
+  if (submitBtn) submitBtn.disabled = true;
+
+  function formatBytes(b) {
+    if (b < 1024) return b + " B";
+    if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1048576).toFixed(1) + " MB";
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = "block";
+    dropPreview.style.display = "none";
+    if (submitBtn) submitBtn.disabled = true;
+  }
+
+  function clearError() {
+    errorEl.style.display = "none";
+    errorEl.textContent = "";
+  }
+
+  function clearPreview() {
+    fileInput.value = "";
+    dropPreview.style.display = "none";
+    previewImg.src = "";
+    previewMeta.textContent = "";
+    clearError();
+    if (submitBtn) submitBtn.disabled = true;
+  }
+
+  function loadFile(file) {
+    clearError();
+    if (!file) { clearPreview(); return; }
+
+    var mime = (file.type || "").toLowerCase();
+    /* also check extension for browsers that don't fill type reliably */
+    var ext = file.name.split(".").pop().toLowerCase();
+    if (ALLOWED.indexOf(mime) === -1 && ext !== "jpg" && ext !== "jpeg" && ext !== "png") {
+      showError("Invalid file type. Please select a JPEG or PNG image.");
+      fileInput.value = "";
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      previewImg.src = ev.target.result;
+      previewMeta.textContent = file.name + "  ·  " + formatBytes(file.size);
+      dropPreview.style.display = "flex";
+      if (submitBtn) submitBtn.disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* Click zone → open picker */
+  dropZone.addEventListener("click", function(e) {
+    if (e.target === changeBtn || e.target === removeBtn) return;
+    fileInput.click();
+  });
+
+  /* File picker change */
+  fileInput.addEventListener("change", function() {
+    loadFile(fileInput.files && fileInput.files[0]);
+  });
+
+  /* Drag events */
+  dropZone.addEventListener("dragover", function(e) {
+    e.preventDefault();
+    dropZone.classList.add("cp-drop-zone--dragover");
+  });
+  dropZone.addEventListener("dragleave", function(e) {
+    if (!dropZone.contains(e.relatedTarget)) {
+      dropZone.classList.remove("cp-drop-zone--dragover");
+    }
+  });
+  dropZone.addEventListener("drop", function(e) {
+    e.preventDefault();
+    dropZone.classList.remove("cp-drop-zone--dragover");
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    /* Inject the dropped file into the hidden input via DataTransfer */
+    try {
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+    } catch(err) { /* IE/old Edge fallback: preview only, submit will re-validate server-side */ }
+    loadFile(file);
+  });
+
+  /* Change / Remove buttons */
+  changeBtn.addEventListener("click", function(e) { e.stopPropagation(); fileInput.click(); });
+  removeBtn.addEventListener("click", function(e) { e.stopPropagation(); clearPreview(); });
+
+  /* Submit guard */
+  form.addEventListener("submit", function(e) {
+    if (!fileInput.files || !fileInput.files.length) { e.preventDefault(); return; }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Analysing…"; }
+  });
+})();
+</script>
+{% endblock %}

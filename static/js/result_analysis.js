@@ -74,4 +74,6 @@ function toggleConf(view) {
   var section = document.getElementById(prefix + "ConfSection");
   if (!section) return;
   section.classList.toggle("is-open");
+  var btn = document.getElementById(prefix + "ConfToggle");
+  if (btn) btn.setAttribute("aria-expanded", section.classList.contains("is-open").toString());
 }

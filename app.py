@@ -50,16 +50,16 @@ from utils.model_health import run_model_health_check
 from utils.orthodontic_ai_inference import run_ortho_analysis, parse_xray_diagnosis_json
 from utils.side_diagnosis import run_side_diagnosis, validate_pipeline_schemas
 from utils.frontal_diagnosis import predict_frontal_diagnosis
+from utils.progress_comparison import (
+    build_progress_comparison,
+    build_summary as build_comparison_summary,
+    build_xray_progress_comparison,
+    build_summary_xray as build_comparison_summary_xray,
+    normalize_comparison_rows,
+)
 from utils.side_measurement_models import predict_side_measurement_analysis
 from utils.model_loader import full_pipeline_from_bytes
 from utils.landmark_preview import preview_to_png_bytes
-from utils.treatment_simulation import (
-    run_local_warp,
-    encode_preview_png,
-    draw_comparison,
-    parse_landmarks,
-    draw_overlay_image,
-)
 
 # Doctor-reviewed Gemini profile-simulation service (backend-only)
 from simulation import simulation_rules as sim_rules
@@ -70,6 +70,10 @@ from simulation.profile_simulation import (
     SimulationValidationError,
 )
 from simulation.gemini_client import GeminiUnavailableError, GeminiGenerationError
+
+# Esthetic Smile Adjustment feature
+from services.smile_adjustment_service import run_smile_adjustment, SmileImageError
+from utils.smile_adjustment_prompt import SmileSelectionError
 
 # Load environment variables from the .env beside this file (Gemini key, etc.)
 try:
@@ -115,6 +119,95 @@ def generate_link_code(length=10):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
+# ── Medical history – valid condition keys (Phase 1) ──────────────
+VALID_MEDICAL_CONDITIONS = {
+    "no_known_conditions",
+    "diabetes",
+    "high_blood_pressure",
+    "low_blood_pressure",
+    "heart_disease",
+    "arrhythmia",
+    "previous_heart_surgery",
+    "asthma_respiratory",
+    "bleeding_disorders",
+    "anemia",
+    "kidney_disease",
+    "liver_disease",
+    "thyroid_problems",
+    "epilepsy_seizures",
+    "medication_allergies",
+    "other_allergies",
+    "regular_medications",
+    "previous_major_surgeries",
+    "pregnancy",
+    "other",
+}
+
+MEDICAL_CONDITION_LABELS = {
+    "no_known_conditions": "No known medical conditions",
+    "diabetes": "Diabetes",
+    "high_blood_pressure": "High blood pressure",
+    "low_blood_pressure": "Low blood pressure",
+    "heart_disease": "Heart disease",
+    "arrhythmia": "Irregular heart rate / arrhythmia",
+    "previous_heart_surgery": "Previous heart surgery",
+    "asthma_respiratory": "Asthma or respiratory problems",
+    "bleeding_disorders": "Blood-clotting or bleeding disorders",
+    "anemia": "Anemia",
+    "kidney_disease": "Kidney disease",
+    "liver_disease": "Liver disease",
+    "thyroid_problems": "Thyroid problems",
+    "epilepsy_seizures": "Epilepsy or seizures",
+    "medication_allergies": "Medication allergies",
+    "other_allergies": "Other allergies",
+    "regular_medications": "Currently taking regular medications",
+    "previous_major_surgeries": "Previous major surgeries",
+    "pregnancy": "Pregnancy",
+    "other": "Other",
+}
+
+
+def _parse_medical_history_form(form):
+    """Parse and validate medical history form data. Returns a dict of clean values."""
+    import html as _html
+
+    raw_conditions = form.getlist("medical_conditions")
+    conditions = [c for c in raw_conditions if c in VALID_MEDICAL_CONDITIONS]
+
+    # Mutual exclusivity: no_known_conditions trumps everything
+    if "no_known_conditions" in conditions:
+        conditions = ["no_known_conditions"]
+
+    other_details = _html.escape((form.get("medical_other_details") or "").strip())[:2000]
+    if "other" not in conditions:
+        other_details = ""
+
+    medications = _html.escape((form.get("current_medications") or "").strip())[:2000]
+    allergies_text = _html.escape((form.get("allergies") or "").strip())[:2000]
+    surgeries = _html.escape((form.get("previous_surgeries") or "").strip())[:2000]
+    notes = _html.escape((form.get("additional_medical_notes") or "").strip())[:5000]
+
+    return {
+        "conditions": conditions,
+        "other_details": other_details,
+        "medications": medications,
+        "allergies": allergies_text,
+        "surgeries": surgeries,
+        "notes": notes,
+    }
+
+
+def _apply_medical_history(patient, parsed):
+    """Apply parsed medical history data to a Patient model instance."""
+    patient.medical_conditions_json = json.dumps(parsed["conditions"]) if parsed["conditions"] else "[]"
+    patient.medical_other_details = parsed["other_details"] or None
+    patient.current_medications = parsed["medications"] or None
+    patient.allergies = parsed["allergies"] or None
+    patient.previous_surgeries = parsed["surgeries"] or None
+    patient.additional_medical_notes = parsed["notes"] or None
+    patient.medical_history_recorded = True
+
+
 def patient_login_required(route_function):
     @wraps(route_function)
     def wrapper(*args, **kwargs):
@@ -156,6 +249,7 @@ from models import (  # noqa: E402 — register models after db.init_app
     Report,
     Result,
     FrontalDiagnosis,
+    ProgressComparison,
     SideDiagnosis,
     TreatmentSimulation,
     MeasurementReview,
@@ -181,6 +275,8 @@ def _ensure_sqlite_columns():
                     conn.execute(
                         text('ALTER TABLE "case" ADD COLUMN follow_up_requested BOOLEAN DEFAULT 0')
                     )
+                if "patient_id" not in cols:
+                    conn.execute(text('ALTER TABLE "case" ADD COLUMN patient_id INTEGER'))
         if insp.has_table("appointment"):
             acols = {c["name"] for c in insp.get_columns("appointment")}
             with db.engine.begin() as conn:
@@ -199,6 +295,21 @@ def _ensure_sqlite_columns():
                     conn.execute(text("ALTER TABLE patient ADD COLUMN private_notes TEXT"))
                 if "private_notes_updated_at" not in pcols:
                     conn.execute(text("ALTER TABLE patient ADD COLUMN private_notes_updated_at DATETIME"))
+                # ── Medical history (Phase 1) ──
+                if "medical_conditions_json" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN medical_conditions_json TEXT"))
+                if "medical_other_details" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN medical_other_details TEXT"))
+                if "current_medications" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN current_medications TEXT"))
+                if "allergies" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN allergies TEXT"))
+                if "previous_surgeries" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN previous_surgeries TEXT"))
+                if "additional_medical_notes" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN additional_medical_notes TEXT"))
+                if "medical_history_recorded" not in pcols:
+                    conn.execute(text("ALTER TABLE patient ADD COLUMN medical_history_recorded BOOLEAN"))
         if not insp.has_table("patient_message"):
             db.create_all()
         if not insp.has_table("ortho_case"):
@@ -244,9 +355,26 @@ def _ensure_sqlite_columns():
         # measurement_review — doctor approve/decline state per measurement
         if not insp.has_table("measurement_review"):
             db.create_all()
+        elif insp.has_table("measurement_review"):
+            mrcols = {c["name"] for c in insp.get_columns("measurement_review")}
+            with db.engine.begin() as conn:
+                if "treatment_explanation_json" not in mrcols:
+                    conn.execute(text(
+                        "ALTER TABLE measurement_review "
+                        "ADD COLUMN treatment_explanation_json TEXT"))
         # profile_simulation — saved Gemini profile-simulation results
         if not insp.has_table("profile_simulation"):
             db.create_all()
+        # progress_comparison — saved progress comparison records (Phase 2)
+        if not insp.has_table("progress_comparison"):
+            db.create_all()
+        elif insp.has_table("progress_comparison"):
+            pccols = {c["name"] for c in insp.get_columns("progress_comparison")}
+            with db.engine.begin() as conn:
+                if "analysis_type" not in pccols:
+                    conn.execute(text(
+                        "ALTER TABLE progress_comparison ADD COLUMN analysis_type VARCHAR(10)"
+                    ))
     except Exception:
         pass
 
@@ -891,6 +1019,25 @@ def add_appointment():
         if not linked:
             case_id = None
 
+    # Duplicate guard: don't create a second SCHEDULED appointment for the same
+    # doctor + patient + case + date + time.
+    dup_filter = Appointment.query.filter_by(
+        doctor_id=doctor_id,
+        appointment_date=appt_date,
+        appointment_time=appt_time,
+        status="SCHEDULED",
+    )
+    if pid:
+        dup_filter = dup_filter.filter_by(patient_id=pid)
+    if case_id:
+        dup_filter = dup_filter.filter_by(case_id=case_id)
+    if dup_filter.first():
+        flash(
+            "An appointment for this patient at that date and time is already scheduled.",
+            "warning",
+        )
+        return redirect(back)
+
     appt = Appointment(
         doctor_id=doctor_id,
         patient_id=pid,
@@ -963,6 +1110,7 @@ def new_analysis():
             active="new_analysis",
             patients=patients,
             today_iso=date.today().isoformat(),
+            medical_condition_labels=MEDICAL_CONDITION_LABELS,
         )
 
     # =========================
@@ -1034,11 +1182,14 @@ def new_analysis():
         ).first()
 
         if patient:
+            # Existing patient — update basic fields only; do not touch medical history
             patient.name = new_name
             patient.age = age_val
             patient.gender = new_gender if new_gender else None
             db.session.commit()
         else:
+            # Brand-new patient — apply medical history BEFORE add/commit so it
+            # is included in the single INSERT (same pattern as doctor_add_patient).
             patient = Patient(
                 patient_code=new_code,
                 name=new_name,
@@ -1046,6 +1197,7 @@ def new_analysis():
                 gender=new_gender if new_gender else None,
                 doctor_id=session["user_id"],
             )
+            _apply_medical_history(patient, _parse_medical_history_form(request.form))
             db.session.add(patient)
             db.session.commit()
 
@@ -1382,6 +1534,14 @@ def patient_cases(patient_id):
         .first()
     )
 
+    # Progress comparisons for this patient (for the "Progress Comparisons" section)
+    progress_comparisons = (
+        ProgressComparison.query
+        .filter_by(patient_id=patient.id, doctor_id=doctor_id)
+        .order_by(ProgressComparison.created_at.desc())
+        .all()
+    )
+
     return render_template(
         "patient_cases.html",
         name=session.get("user_name"),
@@ -1390,10 +1550,455 @@ def patient_cases(patient_id):
         cases=cases,
         case_summaries=case_summaries,
         access_code=access_code_row.code if access_code_row else None,
+        progress_comparisons=progress_comparisons,
     )
 
 
 
+# ── Progress Comparison routes ──────────────────────────────────────────────
+
+_CP_VALID_TYPES = {"side", "front", "xray"}
+
+
+def _cp_overlay_url(result_row):
+    """Safe overlay URL for a Result row."""
+    if not result_row or not result_row.overlay_path:
+        return None
+    fp = static_url_filename(result_row.overlay_path)
+    return url_for("static", filename=fp) if fp else None
+
+
+def _cp_ortho_overlay_url(ortho_rec):
+    """Safe overlay URL for an OrthoCase row."""
+    if not ortho_rec or not ortho_rec.overlay_path:
+        return None
+    fp = ortho_rec.overlay_path.replace("\\", "/")
+    for prefix in ("static/", "static\\"):
+        if fp.startswith(prefix):
+            fp = fp[len(prefix):]
+            break
+    return url_for("static", filename=fp)
+
+
+def _cp_parse_pts(result_row):
+    """Parse landmarks JSON from a Result row; return [] on any error."""
+    if not result_row or not result_row.landmarks_json:
+        return []
+    try:
+        return json.loads(result_row.landmarks_json)
+    except Exception:
+        return []
+
+
+@app.route(
+    "/patients/<int:patient_id>/cases/<int:case_id>/compare-progress",
+    methods=["GET", "POST"],
+)
+@login_required
+def compare_progress(patient_id, case_id):
+    """
+    GET  (no ?type)      – Analysis-type selection screen.
+    GET  (?type=…)       – Baseline display + upload form for that analysis type.
+    POST (analysis_type) – Run the chosen pipeline, save comparison, redirect to view.
+    """
+    doctor_id = session["user_id"]
+
+    patient = Patient.query.filter_by(id=patient_id, doctor_id=doctor_id).first_or_404()
+    baseline_case = Case.query.filter_by(
+        id=case_id, doctor_id=doctor_id, patient_id=patient.id
+    ).first_or_404()
+
+    # What baseline data exists?
+    b_side_result  = Result.query.filter_by(case_id=baseline_case.id, view_type="SIDE").first()
+    b_front_result = Result.query.filter_by(case_id=baseline_case.id, view_type="FRONT_NS").first()
+    b_ortho        = OrthoCase.query.filter_by(case_id=baseline_case.id).first()
+    has_side_data  = bool(b_side_result and b_side_result.landmarks_json)
+    has_front_data = bool(b_front_result and b_front_result.landmarks_json)
+    has_xray_data  = bool(b_ortho and b_ortho.status == "DONE" and b_ortho.diagnosis_json)
+
+    # ── POST: run new analysis ───────────────────────────────────────────────
+    if request.method == "POST":
+        analysis_type = (request.form.get("analysis_type") or "").strip().lower()
+        if analysis_type not in _CP_VALID_TYPES:
+            flash("Invalid analysis type. Please choose Side, Frontal, or X-ray.", "error")
+            return redirect(url_for("compare_progress", patient_id=patient_id, case_id=case_id))
+
+        case_date_val = _parse_case_date(request.form.get("case_date") or "")
+        if case_date_val is None:
+            flash("Please enter a valid date for the progress analysis.", "error")
+            return redirect(url_for("compare_progress", patient_id=patient_id,
+                                    case_id=case_id, type=analysis_type))
+
+        def _nonempty(f):
+            return f and getattr(f, "filename", None) and str(f.filename).strip() != ""
+
+        new_case = Case(
+            doctor_id=doctor_id,
+            patient_id=patient.id,
+            case_type="FOLLOW_UP",
+            status="PROCESSING",
+            case_date=case_date_val,
+        )
+        db.session.add(new_case)
+        db.session.commit()
+
+        try:
+            ensure_static_subdirs("uploads", "results")
+
+            if analysis_type == "side":
+                new_file = request.files.get("side")
+                if not _nonempty(new_file):
+                    raise ValueError("Please upload a side profile image.")
+                fname = f"{new_case.id}_side_{uuid.uuid4().hex}.jpg"
+                frel  = upload_rel(fname)
+                fabs  = upload_abs(fname, BASE_DIR)
+                new_file.save(fabs)
+                db.session.add(Image(case_id=new_case.id, view_type="SIDE", file_path=frel))
+                db.session.commit()
+
+                out = run_view_analysis(new_case.id, fabs, "SIDE")
+                if out["success"]:
+                    db.session.add(Result(
+                        case_id=new_case.id, view_type="SIDE",
+                        landmarks_json=out["landmarks_json"],
+                        overlay_path=normalize_stored_path(out["overlay_path"]),
+                        confidence_json=out.get("confidence_json"),
+                    ))
+                outcomes = [{"uploaded": True, "success": out["success"],
+                             "message": out.get("message") or "",
+                             "failed_stage": out.get("failed_stage")}]
+                db.session.commit()
+                _finalize_case_after_analysis(new_case, outcomes)
+                db.session.commit()
+
+                # Build side-only comparison
+                comparison_data = build_progress_comparison(baseline_case, new_case)
+                comparison_data["analysis_type"] = "side"
+                summary_data = build_comparison_summary(comparison_data)
+
+            elif analysis_type == "front":
+                new_file = request.files.get("front_ns")
+                if not _nonempty(new_file):
+                    raise ValueError("Please upload a frontal image.")
+                fname = f"{new_case.id}_front_ns_{uuid.uuid4().hex}.jpg"
+                frel  = upload_rel(fname)
+                fabs  = upload_abs(fname, BASE_DIR)
+                new_file.save(fabs)
+                db.session.add(Image(case_id=new_case.id, view_type="FRONT_NS", file_path=frel))
+                db.session.commit()
+
+                out = run_view_analysis(new_case.id, fabs, "FRONT_NS")
+                if out["success"]:
+                    db.session.add(Result(
+                        case_id=new_case.id, view_type="FRONT_NS",
+                        landmarks_json=out["landmarks_json"],
+                        overlay_path=normalize_stored_path(out["overlay_path"]),
+                        confidence_json=out.get("confidence_json"),
+                    ))
+                outcomes = [{"uploaded": True, "success": out["success"],
+                             "message": out.get("message") or "",
+                             "failed_stage": out.get("failed_stage")}]
+                db.session.commit()
+                _finalize_case_after_analysis(new_case, outcomes)
+                db.session.commit()
+
+                comparison_data = build_progress_comparison(baseline_case, new_case)
+                comparison_data["analysis_type"] = "front"
+                summary_data = build_comparison_summary(comparison_data)
+
+            else:  # xray
+                new_file = request.files.get("xray")
+                if not _nonempty(new_file):
+                    raise ValueError("Please upload an X-ray image.")
+                xray_name = f"{new_case.id}_xray_{uuid.uuid4().hex}.jpg"
+                xray_upload_dir = os.path.join(BASE_DIR, "static", "uploads", "ortho")
+                os.makedirs(xray_upload_dir, exist_ok=True)
+                xray_abs = os.path.join(xray_upload_dir, xray_name)
+                new_file.save(xray_abs)
+
+                xray_overlay_dir = os.path.join(BASE_DIR, "static", "results", "ortho")
+                os.makedirs(xray_overlay_dir, exist_ok=True)
+                xray_overlay_abs = os.path.join(xray_overlay_dir, f"overlay_{xray_name}")
+
+                ortho_record = OrthoCase(
+                    doctor_id=doctor_id,
+                    patient_id=patient.id,
+                    case_id=new_case.id,
+                    image_path=os.path.join("static", "uploads", "ortho", xray_name),
+                    status="PENDING",
+                )
+                db.session.add(ortho_record)
+                db.session.commit()
+
+                xray_result = run_ortho_analysis(xray_abs, xray_overlay_abs)
+                if xray_result["success"]:
+                    ortho_record.overlay_path = os.path.join(
+                        "static", "results", "ortho", f"overlay_{xray_name}"
+                    )
+                    ortho_record.landmarks_json = json.dumps(xray_result["landmarks"])
+                    ortho_record.diagnosis_json = json.dumps(xray_result["diagnosis"])
+                    ortho_record.status = "DONE"
+                else:
+                    ortho_record.status = "FAILED"
+                    ortho_record.error_message = xray_result.get("error", "Unknown error")
+
+                outcomes = [{"uploaded": True, "success": xray_result["success"],
+                             "message": xray_result.get("error") or "",
+                             "failed_stage": None}]
+                db.session.commit()
+                _finalize_case_after_analysis(new_case, outcomes)
+                db.session.commit()
+
+                comparison_data = build_xray_progress_comparison(baseline_case, new_case)
+                summary_data    = build_comparison_summary_xray(comparison_data)
+
+            comp_rec = ProgressComparison(
+                patient_id       = patient.id,
+                doctor_id        = doctor_id,
+                baseline_case_id = baseline_case.id,
+                new_case_id      = new_case.id,
+                analysis_type    = analysis_type,
+                comparison_json  = json.dumps(comparison_data),
+                summary_json     = json.dumps(summary_data),
+            )
+            db.session.add(comp_rec)
+            db.session.commit()
+
+            flash("Progress analysis complete. Comparison saved.", "success")
+            return redirect(url_for("view_progress_comparison", comparison_id=comp_rec.id))
+
+        except ValueError as ve:
+            db.session.rollback()
+            flash(str(ve), "error")
+            try:
+                new_case.status = "FAILED"
+                db.session.commit()
+            except Exception:
+                pass
+            return redirect(url_for("compare_progress", patient_id=patient_id,
+                                    case_id=case_id, **{"type": analysis_type}))
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.error("compare_progress analysis error: %s", exc)
+            try:
+                new_case.status = "FAILED"
+                new_case.failure_message = MSG_ANALYSIS_FAILED
+                db.session.commit()
+            except Exception:
+                pass
+            flash(MSG_ANALYSIS_FAILED, "error")
+            return redirect(url_for("compare_progress", patient_id=patient_id,
+                                    case_id=case_id, **{"type": analysis_type}))
+
+    # ── GET ─────────────────────────────────────────────────────────────────
+    analysis_type = (request.args.get("type") or "").strip().lower()
+
+    if not analysis_type:
+        # Step 1: Show analysis-type selection cards
+        return render_template(
+            "compare_progress.html",
+            mode="select",
+            name=session.get("user_name"),
+            active="patients",
+            patient=patient,
+            baseline_case=baseline_case,
+            has_side_data=has_side_data,
+            has_front_data=has_front_data,
+            has_xray_data=has_xray_data,
+            today_iso=date.today().isoformat(),
+        )
+
+    if analysis_type not in _CP_VALID_TYPES:
+        flash("Unknown analysis type.", "error")
+        return redirect(url_for("compare_progress", patient_id=patient_id, case_id=case_id))
+
+    # Validate that baseline actually has this type
+    if analysis_type == "side" and not has_side_data:
+        flash("This baseline case does not contain side profile analysis data.", "error")
+        return redirect(url_for("compare_progress", patient_id=patient_id, case_id=case_id))
+    if analysis_type == "front" and not has_front_data:
+        flash("This baseline case does not contain frontal analysis data.", "error")
+        return redirect(url_for("compare_progress", patient_id=patient_id, case_id=case_id))
+    if analysis_type == "xray" and not has_xray_data:
+        flash("This baseline case does not contain X-ray analysis data.", "error")
+        return redirect(url_for("compare_progress", patient_id=patient_id, case_id=case_id))
+
+    # Step 2: Show baseline data + upload form for chosen type
+    from utils.result_ui_data import (
+        build_side_measurement_cards, build_frontal_measurement_cards,
+        build_xray_measurement_cards,
+    )
+    from utils.frontal_measurements import calculate_frontal_measurements
+    from utils.orthodontic_ai_inference import parse_xray_diagnosis_json
+
+    b_side_cards = build_side_measurement_cards(_cp_parse_pts(b_side_result)) if b_side_result else []
+
+    b_front_meas  = calculate_frontal_measurements(_cp_parse_pts(b_front_result)) \
+                    if b_front_result and _cp_parse_pts(b_front_result) else None
+    b_front_cards = build_frontal_measurement_cards(b_front_meas) if b_front_meas else []
+
+    b_xray_cards  = build_xray_measurement_cards(b_ortho.landmarks_json if b_ortho else None)
+    b_xray_diag   = parse_xray_diagnosis_json(b_ortho.diagnosis_json if b_ortho else None)
+
+    b_side_diag  = SideDiagnosis.query.filter_by(
+        case_id=baseline_case.id, doctor_id=doctor_id
+    ).order_by(SideDiagnosis.created_at.desc()).first()
+    b_front_diag = FrontalDiagnosis.query.filter_by(
+        case_id=baseline_case.id, doctor_id=doctor_id
+    ).order_by(FrontalDiagnosis.created_at.desc()).first()
+
+    return render_template(
+        "compare_progress.html",
+        mode="upload",
+        analysis_type=analysis_type,
+        name=session.get("user_name"),
+        active="patients",
+        patient=patient,
+        baseline_case=baseline_case,
+        baseline_side_overlay=_cp_overlay_url(b_side_result),
+        baseline_front_overlay=_cp_overlay_url(b_front_result),
+        baseline_xray_overlay=_cp_ortho_overlay_url(b_ortho),
+        baseline_side_cards=b_side_cards,
+        baseline_front_cards=b_front_cards,
+        baseline_xray_cards=b_xray_cards,
+        baseline_xray_diag=b_xray_diag,
+        baseline_side_diag=b_side_diag,
+        baseline_front_diag=b_front_diag,
+        today_iso=date.today().isoformat(),
+    )
+
+
+@app.route("/progress-comparison/<int:comparison_id>")
+@login_required
+def view_progress_comparison(comparison_id):
+    """View a saved progress comparison. Never reruns any model."""
+    doctor_id = session["user_id"]
+    comp = ProgressComparison.query.get_or_404(comparison_id)
+
+    if comp.doctor_id != doctor_id:
+        flash("You are not allowed to view this comparison.", "error")
+        return redirect(url_for("dashboard"))
+
+    patient       = comp.patient
+    baseline_case = comp.baseline_case
+    new_case_obj  = comp.new_case
+    analysis_type = comp.analysis_type or "side"  # default for old records
+
+    # ── Parse stored JSON safely ─────────────────────────────────────────
+    try:
+        comparison_data = json.loads(comp.comparison_json) if comp.comparison_json else {}
+    except Exception:
+        comparison_data = {}
+    try:
+        summary_data = json.loads(comp.summary_json) if comp.summary_json else {}
+    except Exception:
+        summary_data = {}
+
+    # Normalize rows — safe flat list of dicts, never strings
+    comparison_rows_side    = normalize_comparison_rows(comparison_data, "side")
+    comparison_rows_frontal = normalize_comparison_rows(comparison_data, "frontal")
+    comparison_rows_xray    = normalize_comparison_rows(comparison_data, "xray")
+
+    # For type-specific view we pick only the relevant rows
+    if analysis_type == "side":
+        main_rows = comparison_rows_side
+    elif analysis_type == "front":
+        main_rows = comparison_rows_frontal
+    else:
+        main_rows = comparison_rows_xray
+
+    # ── Load display data from DB (no rerun) ─────────────────────────────
+    from utils.result_ui_data import (
+        build_side_measurement_cards, build_frontal_measurement_cards,
+        build_xray_measurement_cards,
+    )
+    from utils.frontal_measurements import calculate_frontal_measurements
+    from utils.orthodontic_ai_inference import parse_xray_diagnosis_json
+
+    b_side  = Result.query.filter_by(case_id=baseline_case.id, view_type="SIDE").first()
+    b_front = Result.query.filter_by(case_id=baseline_case.id, view_type="FRONT_NS").first()
+    b_ortho = OrthoCase.query.filter_by(case_id=baseline_case.id).first()
+
+    n_side  = Result.query.filter_by(case_id=new_case_obj.id, view_type="SIDE").first()   if new_case_obj else None
+    n_front = Result.query.filter_by(case_id=new_case_obj.id, view_type="FRONT_NS").first() if new_case_obj else None
+    n_ortho = OrthoCase.query.filter_by(case_id=new_case_obj.id).first()                  if new_case_obj else None
+
+    b_side_cards  = build_side_measurement_cards(_cp_parse_pts(b_side)) if b_side else []
+    b_front_meas  = calculate_frontal_measurements(_cp_parse_pts(b_front)) if b_front and _cp_parse_pts(b_front) else None
+    b_front_cards = build_frontal_measurement_cards(b_front_meas) if b_front_meas else []
+    b_xray_cards  = build_xray_measurement_cards(b_ortho.landmarks_json if b_ortho else None)
+    b_xray_diag   = parse_xray_diagnosis_json(b_ortho.diagnosis_json if b_ortho else None)
+
+    n_side_cards  = build_side_measurement_cards(_cp_parse_pts(n_side)) if n_side else []
+    n_front_meas  = calculate_frontal_measurements(_cp_parse_pts(n_front)) if n_front and _cp_parse_pts(n_front) else None
+    n_front_cards = build_frontal_measurement_cards(n_front_meas) if n_front_meas else []
+    n_xray_cards  = build_xray_measurement_cards(n_ortho.landmarks_json if n_ortho else None)
+    n_xray_diag   = parse_xray_diagnosis_json(n_ortho.diagnosis_json if n_ortho else None)
+
+    b_side_diag  = SideDiagnosis.query.filter_by(case_id=baseline_case.id, doctor_id=doctor_id).order_by(SideDiagnosis.created_at.desc()).first()
+    b_front_diag = FrontalDiagnosis.query.filter_by(case_id=baseline_case.id, doctor_id=doctor_id).order_by(FrontalDiagnosis.created_at.desc()).first()
+    n_side_diag  = SideDiagnosis.query.filter_by(case_id=new_case_obj.id, doctor_id=doctor_id).order_by(SideDiagnosis.created_at.desc()).first() if new_case_obj else None
+    n_front_diag = FrontalDiagnosis.query.filter_by(case_id=new_case_obj.id, doctor_id=doctor_id).order_by(FrontalDiagnosis.created_at.desc()).first() if new_case_obj else None
+
+    return render_template(
+        "compare_progress.html",
+        mode="view",
+        analysis_type=analysis_type,
+        name=session.get("user_name"),
+        active="patients",
+        patient=patient,
+        baseline_case=baseline_case,
+        new_case=new_case_obj,
+        comparison=comp,
+        summary_data=summary_data,
+        main_rows=main_rows,
+        comparison_rows_side=comparison_rows_side,
+        comparison_rows_frontal=comparison_rows_frontal,
+        comparison_rows_xray=comparison_rows_xray,
+        baseline_side_overlay=_cp_overlay_url(b_side),
+        baseline_front_overlay=_cp_overlay_url(b_front),
+        baseline_xray_overlay=_cp_ortho_overlay_url(b_ortho),
+        new_side_overlay=_cp_overlay_url(n_side),
+        new_front_overlay=_cp_overlay_url(n_front),
+        new_xray_overlay=_cp_ortho_overlay_url(n_ortho),
+        baseline_side_cards=b_side_cards,
+        baseline_front_cards=b_front_cards,
+        baseline_xray_cards=b_xray_cards,
+        baseline_xray_diag=b_xray_diag,
+        new_side_cards=n_side_cards,
+        new_front_cards=n_front_cards,
+        new_xray_cards=n_xray_cards,
+        new_xray_diag=n_xray_diag,
+        baseline_side_diag=b_side_diag,
+        baseline_front_diag=b_front_diag,
+        new_side_diag=n_side_diag,
+        new_front_diag=n_front_diag,
+    )
+
+
+@app.route("/progress-comparison/<int:comparison_id>/notes", methods=["POST"])
+@login_required
+def save_comparison_notes(comparison_id):
+    """Save/update doctor notes on a saved progress comparison."""
+    import html as _html_module
+    doctor_id = session["user_id"]
+    comp = ProgressComparison.query.get_or_404(comparison_id)
+    if comp.doctor_id != doctor_id:
+        return jsonify({"success": False, "error": "Not authorised."}), 403
+
+    notes = _html_module.escape((request.form.get("doctor_notes") or "").strip())[:5000]
+    comp.doctor_notes = notes or None
+    comp.updated_at   = datetime.utcnow()
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error("save_comparison_notes DB error: %s", exc)
+        flash("Could not save notes. Please try again.", "error")
+        return redirect(url_for("view_progress_comparison", comparison_id=comparison_id))
+
+    flash("Notes saved.", "success")
+    return redirect(url_for("view_progress_comparison", comparison_id=comparison_id))
 
 
 @app.route("/result/<int:case_id>")
@@ -1572,9 +2177,6 @@ def view_result(case_id):
         ortho_rec=ortho_rec,
         doctor_name=session.get("user_name", ""),
         xray_measurement_cards=xray_measurement_cards,
-        saved_simulations=TreatmentSimulation.query.filter_by(
-            case_id=case_id, doctor_id=session["user_id"]
-        ).order_by(TreatmentSimulation.created_at.desc()).all(),
         # Most-recent side diagnosis (if the doctor has run it)
         side_diag=SideDiagnosis.query.filter_by(
             case_id=case_id, doctor_id=session["user_id"]
@@ -1714,6 +2316,8 @@ def _upsert_measurement_reviews(case_id, doctor_id, measurements):
         row.diagnosis_confidence = m.get("diagnosis_confidence")
         row.model_treatment      = m.get("treatment")
         row.treatment_confidence = m.get("treatment_confidence")
+        expl = m.get("treatment_explanation")
+        row.treatment_explanation_json = json.dumps(expl) if expl is not None else None
     db.session.commit()
 
 
@@ -1790,6 +2394,10 @@ def _build_review_state(case_id, doctor_id):
             "diagnosis_confidence": r.diagnosis_confidence,
             "model_treatment": r.model_treatment,
             "treatment_confidence": r.treatment_confidence,
+            "treatment_explanation": (
+                json.loads(r.treatment_explanation_json)
+                if r.treatment_explanation_json else None
+            ),
             "review_status": r.review_status,
         })
 
@@ -2037,6 +2645,76 @@ def serve_generated_simulation(filename):
     return send_file(safe)
 
 
+# ── Smile Adjustment route ──────────────────────────────────────────────────
+
+@app.route("/case/<int:case_id>/smile-adjustment", methods=["POST"])
+@login_required
+def smile_adjustment_generate(case_id):
+    """Generate an esthetic smile-adjustment edit from an uploaded smiling photo.
+
+    multipart/form-data:
+        image        (file)
+        tooth_style  (natural | hollywood | triangular)
+        shade        (BL1 | BL2 | A1 | A2 | A3 | B1 | B2 | C1)
+        gummy_mm     (0–5)
+    """
+    _, err = _authorize_case_doctor(case_id)
+    if err:
+        return err
+
+    upload = request.files.get("image")
+    if upload is None or not upload.filename:
+        return jsonify({"success": False,
+                        "error": "Please upload a smiling patient photo first."}), 400
+
+    try:
+        image_bytes = upload.read()
+    except Exception:
+        return jsonify({"success": False,
+                        "error": "The uploaded image could not be read."}), 400
+
+    tooth_style = request.form.get("tooth_style", "")
+    shade = request.form.get("shade", "")
+    gummy_mm = request.form.get("gummy_mm", "")
+
+    out_dir = os.path.join(BASE_DIR, "generated_simulations", "smile")
+    try:
+        result = run_smile_adjustment(
+            image_bytes=image_bytes,
+            filename=upload.filename,
+            tooth_style=tooth_style,
+            shade=shade,
+            gummy_mm=gummy_mm,
+            output_dir=out_dir,
+            case_id=case_id,
+        )
+    except (SmileSelectionError, SmileImageError) as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except GeminiUnavailableError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except GeminiGenerationError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 502
+    except Exception:
+        app.logger.exception("smile_adjustment failed for case %s", case_id)
+        return jsonify({"success": False,
+                        "error": "The smile adjustment could not be generated."}), 500
+
+    return jsonify({
+        "success": True,
+        "original_url": "/" + result["original_url_path"],
+        "result_url": "/" + result["result_url_path"],
+        "tooth_style": result["tooth_style"],
+        "tooth_style_label": result["tooth_style_label"],
+        "shade": result["shade"],
+        "shade_description": result["shade_description"],
+        "gummy_mm": result["gummy_mm"],
+        "gemini_model": result["gemini_model"],
+        "disclaimer": (
+            "Educational esthetic smile simulation; not a guaranteed clinical outcome."
+        ),
+    })
+
+
 # ── Frontal Diagnosis route ─────────────────────────────────────────────────
 
 @app.route("/case/<int:case_id>/frontal-diagnosis", methods=["POST"])
@@ -2187,202 +2865,6 @@ def predict():
         "treatment_confidence": treat["confidence"] if treat else None,
         "treatment_breakdown":  treat.get("breakdown", []) if treat else [],
     })
-
-
-# ── Treatment Simulation routes ────────────────────────────────────────────
-
-def _load_side_image_and_landmarks(case_id):
-    """
-    Shared helper for simulation routes.
-    Returns (img_bgr, landmarks_raw, error_str_or_None).
-    """
-    side_result = Result.query.filter_by(case_id=case_id, view_type="SIDE").first()
-    if not side_result or not side_result.landmarks_json:
-        return None, None, "No side-view landmarks found for this case."
-
-    side_image = Image.query.filter_by(case_id=case_id, view_type="SIDE").first()
-    if not side_image:
-        return None, None, "Original side image not found for this case."
-
-    raw_path = (side_image.file_path or "").replace("\\", "/").lstrip("/")
-    img_path = os.path.normpath(os.path.join(BASE_DIR, raw_path))
-    if not os.path.isfile(img_path):
-        return None, None, f"Side image file not found on disk: {img_path}"
-
-    img_bgr = cv2.imread(img_path)
-    if img_bgr is None:
-        return None, None, "Could not read the side image file."
-
-    return img_bgr, side_result.landmarks_json, None
-
-
-def _compute_edited_landmarks(orig_pts, sliders):
-    """
-    Apply slider pixel displacements to compute edited landmark positions.
-    Each slider key maps to a group of landmark indices; the slider value
-    is added to the x-coordinate (horizontal profile displacement).
-    stable_points are never moved regardless of slider overlap.
-    """
-    from utils.simulation_config import LANDMARK_GROUPS
-
-    STABLE_SET = set(LANDMARK_GROUPS.get("stable_points", []))
-    edited = [[float(p[0]), float(p[1])] for p in orig_pts]
-
-    for slider_key in ["upper_lip", "lower_lip", "chin", "jaw_profile"]:
-        amount = float(sliders.get(slider_key, 0))
-        if amount == 0:
-            continue
-        for idx in LANDMARK_GROUPS.get(slider_key, []):
-            if idx < len(edited) and idx not in STABLE_SET:
-                edited[idx][0] += amount   # horizontal (x) displacement
-
-    return [(int(round(x)), int(round(y))) for x, y in edited]
-
-
-@app.route("/case/<int:case_id>/simulation/preview", methods=["POST"])
-@login_required
-def simulation_preview(case_id):
-    """
-    Live preview: apply slider displacements, run TPS warp, return base64 PNG.
-    Body JSON: {
-      "sliders": {"upper_lip": N, "lower_lip": N, "chin": N, "jaw_profile": N},
-      "radius":   120,
-      "strength": 1.0
-    }
-    """
-    from flask import jsonify as _json
-
-    case = Case.query.get_or_404(case_id)
-    if case.doctor_id != session["user_id"]:
-        return _json({"success": False, "error": "Not allowed"}), 403
-
-    data     = request.get_json(silent=True) or {}
-    sliders  = data.get("sliders", {})
-    radius   = float(data.get("radius",   120.0))
-    strength = float(data.get("strength", 1.0))
-
-    img_bgr, lm_raw, err = _load_side_image_and_landmarks(case_id)
-    if err:
-        return _json({"success": False, "error": err}), 400
-
-    try:
-        orig_pts   = parse_landmarks(lm_raw)
-        edited_pts = _compute_edited_landmarks(orig_pts, sliders)
-
-        result = run_local_warp(
-            img_bgr,
-            orig_pts,
-            edited_pts,
-            influence_radius=radius,
-            strength=strength,
-            full_quality=False,
-        )
-        preview_b64 = encode_preview_png(result["warped_bgr"])
-        return _json({
-            "success": True,
-            "preview": preview_b64,
-            "backend": result.get("backend", ""),
-        })
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return _json({"success": False, "error": str(exc)}), 500
-
-
-@app.route("/case/<int:case_id>/simulation/save", methods=["POST"])
-@login_required
-def simulation_save(case_id):
-    """
-    Save a full-resolution warp + before/after comparison image.
-    Body JSON: {
-      "sliders":  {"upper_lip": N, "lower_lip": N, "chin": N, "jaw_profile": N},
-      "radius":   120,
-      "strength": 1.0,
-      "notes":    "..."
-    }
-    Response: {"success": true, "sim_id": <int>, "image_url": "..."}
-    """
-    from flask import jsonify as _json
-
-    case = Case.query.get_or_404(case_id)
-    if case.doctor_id != session["user_id"]:
-        return _json({"success": False, "error": "Not allowed"}), 403
-
-    data     = request.get_json(silent=True) or {}
-    sliders  = data.get("sliders", {})
-    radius   = float(data.get("radius",   120.0))
-    strength = float(data.get("strength", 1.0))
-    notes    = (data.get("notes") or "").strip()
-
-    # Validate that at least one slider is non-zero
-    if not any(float(sliders.get(k, 0)) != 0
-               for k in ["upper_lip", "lower_lip", "chin", "jaw_profile"]):
-        return _json({"success": False, "error": "No changes to save — all sliders are at 0."}), 400
-
-    img_bgr, lm_raw, err = _load_side_image_and_landmarks(case_id)
-    if err:
-        return _json({"success": False, "error": err}), 400
-
-    try:
-        orig_pts   = parse_landmarks(lm_raw)
-        edited_pts = _compute_edited_landmarks(orig_pts, sliders)
-
-        # Full-quality warp
-        result = run_local_warp(
-            img_bgr,
-            orig_pts,
-            edited_pts,
-            influence_radius=radius,
-            strength=strength,
-            full_quality=True,
-        )
-        warped_bgr = result["warped_bgr"]
-        sim_pts    = result["simulated_landmarks"]
-
-        # Before/after comparison image
-        comparison = draw_comparison(
-            img_bgr, warped_bgr,
-            orig_pts, sim_pts,
-            max_w=600,
-        )
-
-        sim_dir = os.path.join(BASE_DIR, "static", "results", "simulations")
-        os.makedirs(sim_dir, exist_ok=True)
-        fname = f"sim_{case_id}_{uuid.uuid4().hex[:8]}.jpg"
-        fpath = os.path.join(sim_dir, fname)
-        cv2.imwrite(fpath, comparison, [cv2.IMWRITE_JPEG_QUALITY, 92])
-
-        rel_path = f"static/results/simulations/{fname}"
-
-        params = {
-            "upper_lip":   float(sliders.get("upper_lip",   0)),
-            "lower_lip":   float(sliders.get("lower_lip",   0)),
-            "chin":        float(sliders.get("chin",        0)),
-            "jaw_profile": float(sliders.get("jaw_profile", 0)),
-            "influence_radius": radius,
-            "strength":    strength,
-        }
-
-        sim_rec = TreatmentSimulation(
-            case_id=case_id,
-            doctor_id=session["user_id"],
-            image_path=rel_path,
-            sliders_json=json.dumps(params),
-            simulated_landmarks_json=json.dumps(sim_pts),
-            notes=notes or None,
-        )
-        db.session.add(sim_rec)
-        db.session.commit()
-
-        return _json({
-            "success":   True,
-            "sim_id":    sim_rec.id,
-            "image_url": url_for("static", filename=f"results/simulations/{fname}"),
-        })
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        return _json({"success": False, "error": str(exc)}), 500
 
 
 @app.route("/case/<int:case_id>/simulation/<int:sim_id>/delete", methods=["POST"])
@@ -3006,6 +3488,8 @@ def patients():
 
     access_code_by_patient = {}
     latest_case_by_patient = {}
+    case_counts_by_patient = {}
+    cases_by_patient = {}
     for p in patients_list:
         row = (
             PatientUploadCode.query.filter_by(
@@ -3017,11 +3501,26 @@ def patients():
         )
         if row:
             access_code_by_patient[p.id] = row.code
-        latest_case_by_patient[p.id] = (
+
+        p_cases = (
             Case.query.filter_by(patient_id=p.id, doctor_id=doctor_id)
             .order_by(Case.created_at.desc())
-            .first()
+            .all()
         )
+        cases_by_patient[p.id] = p_cases
+        latest_case_by_patient[p.id] = p_cases[0] if p_cases else None
+
+        # Case status counts
+        total = len(p_cases)
+        needs_review = sum(1 for c in p_cases if c.status in ("PENDING_REVIEW", "PENDING", "PROCESSING"))
+        needs_reupload = sum(1 for c in p_cases if c.status in ("NEEDS_REUPLOAD", "FAILED"))
+        reviewed = sum(1 for c in p_cases if c.status in ("REVIEWED", "REVIWED", "COMPLETED"))
+        case_counts_by_patient[p.id] = {
+            "total": total,
+            "needs_review": needs_review,
+            "needs_reupload": needs_reupload,
+            "reviewed": reviewed,
+        }
 
     selected_patient_id = request.args.get("patient_id", type=int)
 
@@ -3033,7 +3532,10 @@ def patients():
         q=q,
         access_code_by_patient=access_code_by_patient,
         latest_case_by_patient=latest_case_by_patient,
+        case_counts_by_patient=case_counts_by_patient,
+        cases_by_patient=cases_by_patient,
         selected_patient_id=selected_patient_id,
+        medical_condition_labels=MEDICAL_CONDITION_LABELS,
     )
 
 
@@ -3083,6 +3585,14 @@ def doctor_add_patient():
         age=age_val,
         gender=gender if gender else None,
     )
+
+    # ── Medical history (Phase 1) ──
+    med = _parse_medical_history_form(request.form)
+    if "other" in med["conditions"] and not med["other_details"]:
+        flash("Please specify the other medical condition.", "error")
+        return redirect(url_for("patients"))
+    _apply_medical_history(patient, med)
+
     db.session.add(patient)
     db.session.commit()
     flash(f"Patient {name} ({patient_code}) added.", "success")
@@ -3368,6 +3878,25 @@ def save_patient_notes(patient_id):
     cid = request.form.get("case_id", type=int)
     if ret == "result" and cid:
         return redirect(url_for("view_result", case_id=cid))
+    return redirect(url_for("patients", patient_id=patient.id))
+
+
+@app.route("/patients/<int:patient_id>/medical-history", methods=["POST"])
+@login_required
+def edit_medical_history(patient_id):
+    patient = Patient.query.filter_by(
+        id=patient_id,
+        doctor_id=session["user_id"],
+    ).first_or_404()
+
+    med = _parse_medical_history_form(request.form)
+    if "other" in med["conditions"] and not med["other_details"]:
+        flash("Please specify the other medical condition.", "error")
+        return redirect(url_for("patients", patient_id=patient.id))
+
+    _apply_medical_history(patient, med)
+    db.session.commit()
+    flash(f"Medical history updated for {patient.name}.", "success")
     return redirect(url_for("patients", patient_id=patient.id))
 
 

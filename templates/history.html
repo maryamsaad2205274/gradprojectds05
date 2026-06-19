@@ -129,10 +129,17 @@
     </div>
 
   {% else %}
-    <div class="empty">
-      <div class="empty__title">No cases yet</div>
-      <div class="empty__text">Create your first analysis to see it here.</div>
-      <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}">+ New Analysis</a>
+    <div class="empty-state">
+      <svg class="empty-state__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+        <path d="M8 7h6"/><path d="M8 11h8"/>
+      </svg>
+      <div class="empty-state__title">No cases yet</div>
+      <div class="empty-state__desc" style="margin-bottom:20px;">Create your first analysis to see it here.</div>
+      <a class="btn btn--primary" href="{{ url_for('new_analysis') }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Analysis
+      </a>
     </div>
   {% endif %}
 </div>

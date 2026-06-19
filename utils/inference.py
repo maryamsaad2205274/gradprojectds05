@@ -367,9 +367,6 @@ def predict_landmarks(image_path: str, variant: str = "SIDE"):
     )
 
     arr = img_resized.astype(np.float32) / 255.0
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    arr = (arr - mean) / std
 
     x = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
 

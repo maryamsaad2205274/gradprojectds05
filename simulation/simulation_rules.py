@@ -30,6 +30,14 @@ from typing import Dict, List, Optional, Tuple
 #   mentolabial  : Normal | Prominent chin / mandibular retrusion
 #                         | Retruded chin / proclined lower teeth
 #
+# NOTE — "Prominent chin / mandibular retrusion" is the label emitted by the
+# trained mento_diagnosis_random_forest.pkl model.  Clinically it describes a
+# case where the mentolabial angle is decreased (<110°), indicating a RETRUDED
+# MANDIBLE / retruded lower jaw — NOT a protruded chin.  The model label is
+# therefore misleading; we remap it to the clearer internal code
+# "mandibular_retrusion" and display it as "Mandibular retrusion / retruded
+# lower jaw" in all user-facing and Gemini-facing contexts.
+#
 # We map each canonical label to a stable internal code.  A normalization
 # layer collapses capitalization, punctuation, slashes and spacing so we never
 # compare raw uncontrolled display strings throughout the application.
@@ -51,14 +59,32 @@ def _norm_key(label: str) -> str:
 
 
 # canonical display label -> stable internal code
+# Keys are the exact strings emitted by the trained .pkl models.
 _CANONICAL_DIAGNOSES: Dict[str, str] = {
     "Normal":                                  NORMAL_CODE,
     "Protruded maxilla":                       "protruded_maxilla",
     "Retruded maxilla / high columella":       "retruded_maxilla_high_columella",
     "Protruded chin":                          "protruded_chin",
     "Retruded chin":                           "retruded_chin",
-    "Prominent chin / mandibular retrusion":   "prominent_chin_mandibular_retrusion",
+    # Model emits "Prominent chin / mandibular retrusion" but the clinical
+    # meaning is mandibular retrusion (retruded lower jaw).  Internal code is
+    # renamed to "mandibular_retrusion" throughout.
+    "Prominent chin / mandibular retrusion":   "mandibular_retrusion",
     "Retruded chin / proclined lower teeth":   "retruded_chin_proclined_lower_teeth",
+}
+
+# Clean display labels used in the Gemini prompt and any user-facing context
+# where the raw model output label would be confusing or misleading.
+# Maps internal diagnosis code → clean display string.
+DIAGNOSIS_DISPLAY_LABELS: Dict[str, str] = {
+    NORMAL_CODE:                         "Normal",
+    "protruded_maxilla":                 "Protruded maxilla",
+    "retruded_maxilla_high_columella":   "Retruded maxilla",
+    "protruded_chin":                    "Protruded chin",
+    "retruded_chin":                     "Retruded chin",
+    "mandibular_retrusion":              "Mandibular retrusion / retruded lower jaw",
+    "retruded_chin_proclined_lower_teeth": "Retruded chin / proclined lower teeth",
+    "unknown":                           "Unknown finding",
 }
 
 # Pre-computed normalized-key -> code lookup (built once).
@@ -125,7 +151,7 @@ DIAGNOSIS_CHANGES: Dict[str, List[str]] = {
         "chin_reduction",
         "reduce_chin_prominence",
     ],
-    "prominent_chin_mandibular_retrusion": [
+    "mandibular_retrusion": [
         "mandibular_advancement",
         "improve_lower_jaw_projection",
         "improve_lower_facial_balance",
@@ -143,81 +169,179 @@ DIAGNOSIS_CHANGES: Dict[str, List[str]] = {
 # ── Simulation-change-code → controlled anatomical Gemini instruction ───────────
 
 SIMULATION_CHANGE_RULES: Dict[str, str] = {
+    # ── Upper-face / maxillary changes ────────────────────────────────────────
     "improve_upper_profile_support": (
         "Improve visible upper-profile and maxillary soft-tissue support "
-        "while preserving the nose and unrelated facial structures."
+        "beneath the nose and around the upper lip region only. "
+        "The improvement should read as better forward support in the "
+        "side-profile view. "
+        "Do not touch the nose, nostrils, columella, or nasal bridge. "
+        "Do not touch the upper lip unless a lip-specific change is also "
+        "selected. "
+        "Do not alter skin texture or any unrelated anatomy. "
+        "Do not add, remove, or alter facial hair in any way."
     ),
     "improve_maxillary_lip_support": (
-        "Improve upper-lip and maxillary soft-tissue support while preserving "
-        "natural lip shape, the nose, and unrelated facial structures."
+        "Improve upper-lip support and maxillary soft-tissue profile naturally "
+        "so the upper lip appears better supported in the side-profile view. "
+        "Do not enlarge, thin, or reshape the lips beyond natural support. "
+        "Do not change the nose, nostrils, or columella in any way. "
+        "Do not alter facial hair, skin texture, or any unrelated anatomy."
     ),
     "upper_profile_advancement": (
-        "Advance the visible upper-profile and maxillary region forward while "
-        "preserving the nose and unrelated facial structures."
+        "Create a conservative forward improvement in the visible upper "
+        "soft-tissue profile support so the upper-face profile reads as more "
+        "forward in the side view. "
+        "Restrict the change to the maxillary soft-tissue region only. "
+        "Do not change the nose shape, nostrils, or columella. "
+        "Do not alter facial hair, skin texture, or any unrelated anatomy."
     ),
     "reduce_upper_profile_prominence": (
-        "Reduce visible upper-profile and maxillary prominence while preserving "
-        "the nose and unrelated facial structures."
+        "Reduce the visible prominence of the upper-profile and maxillary "
+        "soft-tissue region so the upper-face profile reads as less protruded "
+        "in the side view. "
+        "Restrict the change to the upper-profile soft-tissue region only. "
+        "Do not change the nose. "
+        "Do not alter facial hair, skin texture, or any unrelated anatomy."
     ),
     "upper_lip_retraction": (
-        "Reduce visible upper-lip prominence while preserving natural lip shape "
-        "and facial identity."
+        "Reduce visible upper-lip prominence slightly so the upper lip reads "
+        "as less protruded in the side-profile view. "
+        "Restrict the change to the upper-lip soft-tissue region only. "
+        "Preserve the natural lip shape, philtrum, lip colour, and lip texture. "
+        "Do not change the nose, nostrils, or columella. "
+        "Do not alter facial hair, skin texture, or any unrelated anatomy."
     ),
+    # ── Lower-face / chin / mandibular changes ────────────────────────────────
     "chin_advancement": (
-        "Advance the visible soft-tissue chin while preserving the lips, nose, "
-        "and unrelated facial structures."
+        "Advance the visible soft-tissue chin profile slightly forward to "
+        "improve chin projection and lower facial balance. "
+        "The advancement should be clearly noticeable in the side view. "
+        "Restrict the change to the chin soft-tissue region only — "
+        "do not alter the lips, neck, or any other region. "
+        "Preserve the nose, lips unless lip change is also selected, "
+        "skin texture, and all unrelated facial structures. "
+        "Do not add, remove, or alter facial hair in any way."
     ),
     "improve_chin_projection": (
-        "Improve the visible soft-tissue chin projection while preserving the "
-        "lips, nose, and unrelated facial structures."
+        "Improve the visible soft-tissue chin projection so the chin reads as "
+        "better projected and more balanced with the mid-face in the side view. "
+        "Restrict the change to the chin soft-tissue profile region only. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the chin in any way. "
+        "Preserve the nose, lips unless lip change is also selected, "
+        "skin texture, and all unrelated facial structures."
     ),
     "chin_reduction": (
-        "Reduce the visible soft-tissue chin prominence while preserving the "
-        "lips, nose, and unrelated facial structures."
+        "Reduce the visible soft-tissue chin prominence conservatively so the "
+        "chin reads as less protruded in the side view. "
+        "Restrict the change to the chin soft-tissue profile region only. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the chin or jawline in any way. "
+        "Preserve the nose, lips unless lip change is also selected, "
+        "natural jawline, skin texture, and all unrelated facial structures."
     ),
     "reduce_chin_prominence": (
-        "Reduce the visible prominence of the chin profile while preserving the "
-        "lips, nose, and unrelated facial structures."
+        "Reduce the visible prominence of the chin in the side-profile view "
+        "conservatively to improve lower facial balance. "
+        "Restrict the change to the chin soft-tissue profile region only. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the chin or jawline in any way. "
+        "Preserve the nose, lips unless lip change is also selected, "
+        "natural jawline, skin texture, and all unrelated facial structures."
     ),
     "mandibular_advancement": (
-        "Advance the lower-jaw and soft-tissue chin profile forward to improve "
-        "lower facial balance."
+        "Advance the visible lower-jaw and chin soft-tissue profile forward as "
+        "one coordinated lower-face change so the lower jaw and chin region "
+        "appear more forward in the side view, improving lower facial balance "
+        "and the chin-to-neck relationship. "
+        "The change must be clearly visible without being overdone. "
+        "Restrict the change strictly to the lower-jaw and chin soft-tissue "
+        "profile — do not alter any region outside this zone. "
+        "Preserve the nose, upper lip unless lip change is also selected, "
+        "skin texture, and all unrelated facial structures. "
+        "Do not add, remove, or alter facial hair in any way."
     ),
     "improve_lower_jaw_projection": (
-        "Improve the visible lower-jaw projection while preserving the lips, "
-        "nose, and unrelated facial structures."
+        "Improve the visible lower-jaw projection in the side-profile view so "
+        "the lower jaw reads as better projected and more balanced. "
+        "Restrict the change to the lower-jaw soft-tissue profile region. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the jaw or chin in any way. "
+        "Preserve the lips unless lip change is also selected, the nose, "
+        "skin texture, and all unrelated facial structures."
     ),
     "improve_lower_facial_balance": (
-        "Improve the overall lower-facial balance of the profile while keeping "
-        "changes anatomically restrained and realistic."
+        "Improve lower facial profile balance by subtly harmonizing the lower "
+        "lip, chin, and jawline soft-tissue profile according to the approved "
+        "diagnosis. The improvement should read as more balanced lower-face "
+        "proportions in the side view. "
+        "Restrict the change to the lower-face soft-tissue profile region. "
+        "Preserve the nose, upper lip unless lip change is also selected, "
+        "skin texture, and all unrelated facial structures. "
+        "Do not add, remove, or alter facial hair in any way."
     ),
     "mandibular_setback": (
-        "Set the lower-jaw profile back to reduce lower-jaw prominence while "
-        "preserving unrelated facial structures."
+        "Move the visible lower-jaw and chin soft-tissue profile slightly "
+        "backward as one coordinated lower-face change to reduce excessive "
+        "lower-jaw prominence. "
+        "The setback should be clearly visible in the side view without being "
+        "overdone. "
+        "Restrict the change strictly to the lower-jaw and chin soft-tissue "
+        "profile — do not alter any region outside this zone. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the chin, jaw, or neck in any way. "
+        "Preserve the nose, upper lip unless lip change is also selected, "
+        "skin texture, and all unrelated facial structures."
     ),
     "reduce_lower_jaw_prominence": (
-        "Reduce visible lower-jaw prominence while preserving the lips, nose, "
-        "and unrelated facial structures."
+        "Reduce visible lower-jaw prominence in the side-profile view to "
+        "improve lower facial balance. "
+        "Restrict the change to the lower-jaw soft-tissue profile region. "
+        "Do not add, remove, or alter facial hair, beard, or stubble on or "
+        "around the jaw or chin in any way. "
+        "Preserve the lips unless lip change is also selected, the nose, "
+        "skin texture, and all unrelated facial structures."
     ),
+    # ── Lip changes ───────────────────────────────────────────────────────────
     "lower_lip_retraction": (
-        "Reduce visible lower-lip prominence while preserving natural lip shape "
-        "and facial identity."
+        "Reduce visible lower-lip prominence slightly so the lower lip reads "
+        "as less protruded in the side-profile view. "
+        "Restrict the change to the lower-lip soft-tissue region only. "
+        "Preserve the natural lip shape, colour, and lip-skin texture. "
+        "Do not alter the chin, nose, facial hair, or any unrelated anatomy."
     ),
     "lip_retraction": (
-        "Reduce visible lip prominence while preserving natural lip shape and "
-        "facial identity."
+        "Reduce visible lip prominence slightly so the lips read as less "
+        "protruded in the side-profile view. "
+        "Restrict the change to the lip soft-tissue region only. "
+        "Preserve the natural lip shape, mouth closure, lip colour, "
+        "and lip-skin texture. "
+        "Do not alter the chin, nose, facial hair, or any unrelated anatomy."
     ),
     "reduce_lip_prominence": (
-        "Reduce visible lip prominence while preserving natural lip shape and "
-        "facial identity."
+        "Reduce visible lip prominence so the lip profile reads as less "
+        "protruded in the side view. "
+        "Restrict the change to the lip soft-tissue region only. "
+        "Preserve the natural lip shape, philtrum, lip colour, "
+        "and lip-skin texture. "
+        "Do not alter the chin, nose, facial hair, or any unrelated anatomy."
     ),
     "improve_lip_support": (
-        "Improve visible lip support while preserving natural lip shape and "
-        "facial identity."
+        "Improve visible lip support naturally so the lips read as better "
+        "supported in the side-profile view. "
+        "Do not enlarge, artificially plump, or cosmetically enhance the lips. "
+        "Restrict the change to the lip soft-tissue region only. "
+        "Preserve the natural lip shape, lip colour, and lip-skin texture. "
+        "Do not alter the chin, nose, facial hair, or any unrelated anatomy."
     ),
     "lip_advancement": (
-        "Advance the visible lip profile slightly while preserving natural lip "
-        "shape and facial identity."
+        "Advance the visible lip profile very slightly to improve lip support "
+        "in the side-profile view. "
+        "Restrict the change to the lip soft-tissue region only. "
+        "Preserve the natural lip shape, philtrum, lip colour, "
+        "and lip-skin texture. "
+        "Do not alter the chin, nose, facial hair, or any unrelated anatomy."
     ),
 }
 
@@ -226,7 +350,6 @@ SIMULATION_CHANGE_RULES: Dict[str, str] = {
 STRENGTHS: Dict[str, str] = {
     "conservative": "Conservative",
     "moderate":     "Moderate",
-    "exaggerated":  "Exaggerated",
 }
 DEFAULT_STRENGTH = "conservative"
 
@@ -238,10 +361,15 @@ DEFAULT_STRENGTH = "conservative"
 # selected-change set is a superset of any conflict pair.
 
 _DIAGNOSIS_CONFLICTS: List[frozenset] = [
+    # True clinical opposites — cannot be approved simultaneously.
     frozenset({"retruded_chin", "protruded_chin"}),
     frozenset({"retruded_chin_proclined_lower_teeth", "protruded_chin"}),
     frozenset({"retruded_maxilla_high_columella", "protruded_maxilla"}),
-    frozenset({"prominent_chin_mandibular_retrusion", "retruded_chin"}),
+    # mandibular_retrusion (retruded lower jaw) + protruded_chin are
+    # anatomically contradictory at the jaw/chin level.
+    frozenset({"mandibular_retrusion", "protruded_chin"}),
+    # NOTE: retruded_chin + mandibular_retrusion is intentionally NOT a
+    # conflict — both can co-exist in the same patient profile.
 ]
 
 _CHANGE_CONFLICTS: List[frozenset] = [
@@ -291,6 +419,17 @@ def available_changes(approved_diagnosis_codes: List[str]) -> List[Dict[str, str
 def valid_change_codes(approved_diagnosis_codes: List[str]) -> set:
     """Set of change codes supported by the approved abnormal diagnoses."""
     return {c["code"] for c in available_changes(approved_diagnosis_codes)}
+
+
+def diagnosis_display_label(code: str) -> str:
+    """Return the clean, user-facing display label for an internal diagnosis code.
+
+    Use this instead of the raw model-output string when building the Gemini
+    prompt or displaying the finding to the doctor, so that clinically misleading
+    model labels (e.g. 'Prominent chin / mandibular retrusion') are replaced with
+    their correct clinical description.
+    """
+    return DIAGNOSIS_DISPLAY_LABELS.get(code, code)
 
 
 def change_label(code: str) -> str:

@@ -59,7 +59,6 @@
             Patients
           </a>
         {% else %}
-          <div class="nav__section-label">Workspace</div>
           <a class="nav__item {% if active=='dashboard' %}is-active{% endif %}"
              href="{{ url_for('dashboard') }}">
             <span class="nav__icon">
@@ -81,7 +80,6 @@
             </span>
             Appointments
           </a>
-          <div class="nav__section-label" style="margin-top:8px;">Analysis</div>
           <a class="nav__item {% if active=='new_analysis' %}is-active{% endif %}"
              href="{{ url_for('new_analysis') }}">
             <span class="nav__icon">
@@ -89,26 +87,11 @@
             </span>
             New Analysis
           </a>
-          <a class="nav__item {% if active in ['cases','analysis'] %}is-active{% endif %}"
-             href="{{ url_for('history') }}">
-            <span class="nav__icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            </span>
-            Case History
-          </a>
-          <a class="nav__item {% if active=='reports' %}is-active{% endif %}"
-             href="{{ url_for('reports') }}">
-            <span class="nav__icon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            </span>
-            Reports
-          </a>
-          <div class="nav__section-label" style="margin-top:8px;">Info</div>
           <a class="nav__item {% if active=='about' %}is-active{% endif %}" href="{{ url_for('about') }}">
             <span class="nav__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             </span>
-            About
+            Info
           </a>
           <a class="nav__item {% if active=='contact' %}is-active{% endif %}" href="{{ url_for('contact') }}">
             <span class="nav__icon">
@@ -162,9 +145,18 @@
       <section class="content">
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
-            <div class="flash-wrap">
+            <div class="da-toast-container" id="daToastContainer">
               {% for category, msg in messages %}
-                <div class="flash flash--{{ category }}">{{ msg }}</div>
+                <div class="da-toast da-toast--{{ category }}">
+                  {% if category == 'success' %}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--success)"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  {% elif category == 'error' or category == 'danger' %}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--destructive)"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                  {% else %}
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary)"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  {% endif %}
+                  <span>{{ msg }}</span>
+                </div>
               {% endfor %}
             </div>
           {% endif %}
@@ -186,6 +178,15 @@
     });
     window.addEventListener("click", () => menu.classList.add("hidden"));
   }
+
+  // Toast Auto-dismiss
+  const toasts = document.querySelectorAll(".da-toast");
+  toasts.forEach(toast => {
+    setTimeout(() => {
+      toast.classList.add("is-hiding");
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  });
   </script>
   {% block extra_scripts %}{% endblock %}
 </body>

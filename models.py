@@ -51,6 +51,18 @@ class Patient(db.Model):
     private_notes = db.Column(db.Text, nullable=True)
     private_notes_updated_at = db.Column(db.DateTime, nullable=True)
 
+    # ── Medical history (Phase 1) ──
+    # JSON array of selected condition keys, e.g. ["diabetes","high_blood_pressure"]
+    medical_conditions_json = db.Column(db.Text, nullable=True)
+    # Free-text when "Other" is selected
+    medical_other_details = db.Column(db.Text, nullable=True)
+    current_medications = db.Column(db.Text, nullable=True)
+    allergies = db.Column(db.Text, nullable=True)
+    previous_surgeries = db.Column(db.Text, nullable=True)
+    additional_medical_notes = db.Column(db.Text, nullable=True)
+    # True = medical history was explicitly saved; None = never entered
+    medical_history_recorded = db.Column(db.Boolean, nullable=True)
+
     doctor = db.relationship("User", backref=db.backref("patients", lazy=True))
     patient_auth = db.relationship("PatientAuth", backref=db.backref("patient_profile", uselist=False))
 
@@ -327,6 +339,8 @@ class MeasurementReview(db.Model):
     diagnosis_confidence = db.Column(db.Float, nullable=True)   # 0-1
     model_treatment      = db.Column(db.String(160), nullable=True)
     treatment_confidence = db.Column(db.Float, nullable=True)   # 0-1
+    # SHAP treatment_explanation dict serialised as JSON (optional, non-fatal)
+    treatment_explanation_json = db.Column(db.Text, nullable=True)
 
     # pending | approved | declined
     review_status = db.Column(db.String(20), default="pending", nullable=False)
@@ -394,3 +408,45 @@ class FrontalDiagnosis(db.Model):
     case   = db.relationship("Case", backref=db.backref(
         "frontal_diagnoses", lazy=True, cascade="all, delete-orphan"))
     doctor = db.relationship("User", backref=db.backref("frontal_diagnoses", lazy=True))
+
+
+class ProgressComparison(db.Model):
+    """
+    Saved progress comparison between a baseline case and a new follow-up case.
+
+    The full structured comparison (measurements, diffs, reference-range movement)
+    is stored as JSON text.  The baseline case is never modified.
+    """
+    __tablename__ = "progress_comparison"
+
+    id          = db.Column(db.Integer, primary_key=True)
+    patient_id  = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    doctor_id   = db.Column(db.Integer, db.ForeignKey("user.id"),    nullable=False)
+
+    baseline_case_id = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=False)
+    new_case_id      = db.Column(db.Integer, db.ForeignKey("case.id"), nullable=True)
+
+    # Which analysis type this comparison covers: 'side', 'front', or 'xray'
+    # Null only for comparisons created before this field was added.
+    analysis_type = db.Column(db.String(10), nullable=True)
+
+    # Full comparison dict as JSON text (side + frontal measurements, diffs)
+    comparison_json = db.Column(db.Text, nullable=True)
+    # Summary dict as JSON text (counts, overall note)
+    summary_json    = db.Column(db.Text, nullable=True)
+
+    doctor_notes = db.Column(db.Text, nullable=True)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+    patient = db.relationship("Patient", backref=db.backref(
+        "progress_comparisons", lazy=True, cascade="all, delete-orphan"))
+    doctor = db.relationship("User", backref=db.backref("progress_comparisons", lazy=True))
+    baseline_case = db.relationship(
+        "Case", foreign_keys=[baseline_case_id],
+        backref=db.backref("baseline_comparisons", lazy="dynamic", passive_deletes=True),
+    )
+    new_case = db.relationship(
+        "Case", foreign_keys=[new_case_id],
+        backref=db.backref("new_comparisons", lazy="dynamic", passive_deletes=True),
+    )

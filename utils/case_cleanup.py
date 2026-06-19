@@ -13,6 +13,7 @@ from models import (
     Patient,
     PatientMessage,
     PatientUploadCode,
+    ProgressComparison,
     Report,
     Result,
 )
@@ -31,7 +32,12 @@ def _safe_remove_file(stored_path: Optional[str]) -> None:
 
 
 def purge_case(case: Case) -> None:
-    """Delete a case, its results/images/reports, and unlink appointments."""
+    """Delete a case, its results/images/reports, and unlink appointments.
+
+    Progress comparisons that reference this case (as baseline or as the new
+    progress case) are also deleted — a comparison cannot remain valid when
+    either of its constituent cases is gone.
+    """
     case_id = case.id
 
     for img in Image.query.filter_by(case_id=case_id).all():
@@ -41,6 +47,16 @@ def purge_case(case: Case) -> None:
     report = Report.query.filter_by(case_id=case_id).first()
     if report:
         _safe_remove_file(report.file_path)
+
+    # Delete ProgressComparison rows that reference this case before deleting
+    # the case itself.  Both FK columns are NOT NULL so SQLAlchemy must not
+    # attempt to SET them to NULL; we remove the rows explicitly instead.
+    ProgressComparison.query.filter(
+        db.or_(
+            ProgressComparison.baseline_case_id == case_id,
+            ProgressComparison.new_case_id      == case_id,
+        )
+    ).delete(synchronize_session=False)
 
     Appointment.query.filter_by(case_id=case_id).update(
         {Appointment.case_id: None},

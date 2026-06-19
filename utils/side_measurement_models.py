@@ -167,11 +167,14 @@ def _predict_rf_treat(
     feature_name: str,
     value: float,
     growth_stage: str,
-) -> Tuple[str, float]:
-    """Run one Random Forest treatment model.
+    measurement_key: str,
+) -> Tuple[str, float, Dict[str, Any]]:
+    """Run one Random Forest treatment model + build its SHAP explanation.
 
     Input DataFrame: columns [feature_name, "growth_stage"] with one row.
-    Returns (predicted_label, confidence_0_to_1).
+    Returns (predicted_label, confidence_0_to_1, treatment_explanation).
+    The treatment label always comes from the model; SHAP only explains it and
+    never blocks the prediction.
     """
     model = _load(key)
     df = pd.DataFrame({feature_name: [value], "growth_stage": [growth_stage]})
@@ -180,19 +183,25 @@ def _predict_rf_treat(
     classes = _rf_classes(model)
     idx = list(classes).index(prediction)
     confidence = round(float(probabilities[idx]), 4)
-    return str(prediction), confidence
+
+    explanation = _explain_treatment(
+        pipeline=model, input_df=df, predicted_class=prediction,
+        predicted_treatment=str(prediction), measurement_key=measurement_key,
+        angle=value, growth_stage=growth_stage,
+    )
+    return str(prediction), confidence, explanation
 
 
 def _predict_mento_treat(
     value: float,
     growth_stage: str,
-) -> Tuple[str, float]:
+) -> Tuple[str, float, Dict[str, Any]]:
     """Run the mentolabial XGBoost treatment model with its LabelEncoder.
 
     Input DataFrame: columns ["mentolabial", "growth_stage"] with one row.
     The XGBoost model predicts an integer class index; the LabelEncoder
     converts it back to the treatment text string.
-    Returns (predicted_label, confidence_0_to_1).
+    Returns (predicted_label, confidence_0_to_1, treatment_explanation).
     """
     model = _load("mento_treat")
     enc = _load("mento_treat_enc")
@@ -202,7 +211,32 @@ def _predict_mento_treat(
     probabilities = model.predict_proba(df)[0]
     predicted_index = int(encoded_prediction[0])
     confidence = round(float(probabilities[predicted_index]), 4)
-    return str(treatment), confidence
+
+    # SHAP must use the ENCODED integer class; the display label is decoded.
+    explanation = _explain_treatment(
+        pipeline=model, input_df=df, predicted_class=predicted_index,
+        predicted_treatment=str(treatment), measurement_key="mentolabial",
+        angle=value, growth_stage=growth_stage,
+    )
+    return str(treatment), confidence, explanation
+
+
+def _explain_treatment(**kwargs) -> Dict[str, Any]:
+    """Thin wrapper so SHAP stays optional and never breaks treatment output."""
+    try:
+        from utils.side_treatment_shap import explain_treatment_prediction
+        return explain_treatment_prediction(**kwargs)
+    except Exception:
+        return {
+            "available": False,
+            "short_summary": "Explanation unavailable.",
+            "summary": (
+                "The treatment prediction was generated successfully, but its "
+                "model explanation is currently unavailable."
+            ),
+            "features": [],
+            "error_code": "SHAP_EXPLANATION_FAILED",
+        }
 
 
 def _merge_labels(
@@ -299,14 +333,14 @@ def predict_side_measurement_analysis(
         mento_diag,   mento_diag_conf   = _predict_rf_diag(
             "mento_diag",   "mentolabial",       mento_f)
 
-        # ── 4. Treatment models (angle + growth_stage) ────────────────────────
-        nasio_treat,   nasio_treat_conf   = _predict_rf_treat(
-            "nasio_treat",   "nasiolabial",       nasio_f,   growth_stage)
-        profile_treat, profile_treat_conf = _predict_rf_treat(
-            "profile_treat", "profile_convexity", profile_f, growth_stage)
-        total_treat,   total_treat_conf   = _predict_rf_treat(
-            "total_treat",   "total_convexity",   total_f,   growth_stage)
-        mento_treat,   mento_treat_conf   = _predict_mento_treat(
+        # ── 4. Treatment models (angle + growth_stage) + SHAP explanation ─────
+        nasio_treat,   nasio_treat_conf,   nasio_treat_expl   = _predict_rf_treat(
+            "nasio_treat",   "nasiolabial",       nasio_f,   growth_stage, "nasiolabial")
+        profile_treat, profile_treat_conf, profile_treat_expl = _predict_rf_treat(
+            "profile_treat", "profile_convexity", profile_f, growth_stage, "profile_convexity")
+        total_treat,   total_treat_conf,   total_treat_expl   = _predict_rf_treat(
+            "total_treat",   "total_convexity",   total_f,   growth_stage, "total_convexity")
+        mento_treat,   mento_treat_conf,   mento_treat_expl   = _predict_mento_treat(
             mento_f, growth_stage)
 
         # ── 5. Per-measurement results ────────────────────────────────────────
@@ -318,6 +352,7 @@ def predict_side_measurement_analysis(
                 "diagnosis_confidence": nasio_diag_conf,
                 "treatment":            nasio_treat,
                 "treatment_confidence": nasio_treat_conf,
+                "treatment_explanation": nasio_treat_expl,
             },
             "profile_convexity": {
                 "display_name":         _DISPLAY_NAMES["profile_convexity"],
@@ -326,6 +361,7 @@ def predict_side_measurement_analysis(
                 "diagnosis_confidence": profile_diag_conf,
                 "treatment":            profile_treat,
                 "treatment_confidence": profile_treat_conf,
+                "treatment_explanation": profile_treat_expl,
             },
             "total_convexity": {
                 "display_name":         _DISPLAY_NAMES["total_convexity"],
@@ -334,6 +370,7 @@ def predict_side_measurement_analysis(
                 "diagnosis_confidence": total_diag_conf,
                 "treatment":            total_treat,
                 "treatment_confidence": total_treat_conf,
+                "treatment_explanation": total_treat_expl,
             },
             "mentolabial": {
                 "display_name":         _DISPLAY_NAMES["mentolabial"],
@@ -342,6 +379,7 @@ def predict_side_measurement_analysis(
                 "diagnosis_confidence": mento_diag_conf,
                 "treatment":            mento_treat,
                 "treatment_confidence": mento_treat_conf,
+                "treatment_explanation": mento_treat_expl,
             },
         }
 

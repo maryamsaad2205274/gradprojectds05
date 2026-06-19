@@ -1001,6 +1001,102 @@ def _draw_xray_measurements_section(
     return y
 
 
+def _draw_medical_history_section(c: pdf_canvas.Canvas, pages: "_ReportPages", y: float, patient: Any) -> float:
+    """Draw the patient's medical history section."""
+    if not patient:
+        return y
+
+    import json
+    recorded = getattr(patient, "medical_history_recorded", None)
+    
+    y = ensure_space_or_new_page_y(c, y, 60, pages)
+    y = draw_section_title(c, "Medical History", y, pages)
+
+    if recorded is None:
+        c.setFillColor(COLOR_TEXT)
+        c.setFont("Helvetica", 9)
+        c.drawString(MARGIN_L, y, "Medical history has not been recorded.")
+        y -= 16
+        return y
+
+    conditions_json = getattr(patient, "medical_conditions_json", "[]")
+    try:
+        conditions = json.loads(conditions_json) if conditions_json else []
+    except Exception:
+        conditions = []
+
+    if "no_known_conditions" in conditions:
+        c.setFillColor(COLOR_TEXT)
+        c.setFont("Helvetica", 9)
+        c.drawString(MARGIN_L, y, "No known medical conditions reported.")
+        y -= 16
+    else:
+        # Conditions
+        if conditions:
+            LABELS = {
+                "diabetes": "Diabetes",
+                "high_blood_pressure": "High blood pressure",
+                "low_blood_pressure": "Low blood pressure",
+                "heart_disease": "Heart disease",
+                "arrhythmia": "Irregular heart rate / arrhythmia",
+                "previous_heart_surgery": "Previous heart surgery",
+                "asthma_respiratory": "Asthma or respiratory problems",
+                "bleeding_disorders": "Blood-clotting or bleeding disorders",
+                "anemia": "Anemia",
+                "kidney_disease": "Kidney disease",
+                "liver_disease": "Liver disease",
+                "thyroid_problems": "Thyroid problems",
+                "epilepsy_seizures": "Epilepsy or seizures",
+                "medication_allergies": "Medication allergies",
+                "other_allergies": "Other allergies",
+                "regular_medications": "Currently taking regular medications",
+                "previous_major_surgeries": "Previous major surgeries",
+                "pregnancy": "Pregnancy",
+                "other": "Other"
+            }
+            c.setFillColor(COLOR_MUTED)
+            c.setFont("Helvetica-Bold", 8)
+            c.drawString(MARGIN_L, y, "Conditions:")
+            y -= 12
+            
+            cond_strs = []
+            for cd in conditions:
+                lbl = LABELS.get(cd, cd)
+                if cd == "other" and getattr(patient, "medical_other_details", None):
+                    lbl += f" ({patient.medical_other_details})"
+                cond_strs.append(f"• {lbl}")
+            
+            y = _draw_paragraph(c, "\n".join(cond_strs), MARGIN_L + 10, y, CONTENT_W - 10, size=9, line_h=12)
+            y -= 8
+
+        # Text fields
+        fields = [
+            ("Current Medications", getattr(patient, "current_medications", None)),
+            ("Allergies", getattr(patient, "allergies", None)),
+            ("Previous Surgeries", getattr(patient, "previous_surgeries", None)),
+            ("Additional Notes", getattr(patient, "additional_medical_notes", None)),
+        ]
+
+        for label, val in fields:
+            if val and val.strip():
+                y = ensure_space_or_new_page_y(c, y, 30, pages)
+                c.setFillColor(COLOR_MUTED)
+                c.setFont("Helvetica-Bold", 8)
+                c.drawString(MARGIN_L, y, f"{label}:")
+                y -= 12
+                y = _draw_paragraph(c, val.strip(), MARGIN_L + 10, y, CONTENT_W - 10, size=9, line_h=12)
+                y -= 8
+
+    # Disclaimer
+    y -= 8
+    c.setFillColor(COLOR_MUTED)
+    c.setFont("Helvetica-Oblique", 7)
+    y = _draw_paragraph(c, "Medical history reflects the information currently stored in the patient profile at the time this report was generated.", MARGIN_L, y, CONTENT_W, size=7, line_h=9)
+    y -= 16
+
+    return y
+
+
 def render_case_pdf(
     base_dir: str,
     case: Any,
@@ -1064,6 +1160,11 @@ def render_case_pdf(
         y = ensure_space_or_new_page_y(c, y, 60, pages)
         y = draw_section_title(c, "Clinical notes / diagnosis", y, pages)
         y = _draw_paragraph(c, doctor_comment, MARGIN_L, y, CONTENT_W, size=9, line_h=11)
+        y -= SECTION_SPACING
+
+    # --- Medical History ---
+    if patient:
+        y = _draw_medical_history_section(c, pages, y, patient)
         y -= SECTION_SPACING
 
     # --- Side view measurements ---

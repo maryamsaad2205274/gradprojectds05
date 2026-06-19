@@ -40,6 +40,7 @@
   .preview-box { display: none; margin-top: .9rem; }
   .preview-box img {
     max-width: 100%; max-height: 260px;
+    object-fit: contain;
     border-radius: 8px;
     border: 1px solid var(--border, #e2e8f0);
     display: block;
@@ -58,23 +59,75 @@
   @media (max-width: 900px) { .upload-row-3 { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 580px) { .upload-row-3 { grid-template-columns: 1fr; } }
 
-  /* ── Loading overlay ─────────────────────────────── */
-  #globalLoading {
-    display: none; position: fixed; inset: 0;
-    background: rgba(15, 23, 42, .55);
-    z-index: 9999;
-    align-items: center; justify-content: center; flex-direction: column;
-    gap: 1rem; color: #fff; font-size: 1rem;
+  /* ── Medical history (new patient) ──────────────── */
+  .mh-section {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border, #e2e8f0);
   }
-  #globalLoading.active { display: flex; }
-  .spin-ring {
-    width: 52px; height: 52px;
-    border: 5px solid rgba(255,255,255,.25);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin .85s linear infinite;
+  .mh-section__title {
+    font-size: .9rem;
+    font-weight: 700;
+    color: var(--foreground);
+    margin: 0 0 .2rem;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .mh-section__hint {
+    font-size: .75rem;
+    color: var(--muted-foreground, #94a3b8);
+    margin: 0 0 .9rem;
+  }
+  .mh-conditions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 6px;
+    margin-bottom: .9rem;
+  }
+  .mh-condition-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--muted, #f8fafc);
+    border: 1.5px solid var(--border, #e2e8f0);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--foreground);
+    transition: border-color .15s, background .15s;
+    user-select: none;
+  }
+  .mh-condition-label:hover {
+    border-color: var(--primary, #6366f1);
+    background: oklch(0.55 0.18 245 / 0.05);
+  }
+  .mh-condition-label input[type="checkbox"] {
+    accent-color: var(--primary, #6366f1);
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .mh-condition-label--no-known {
+    grid-column: 1 / -1;
+    border-color: var(--primary, #6366f1);
+    background: oklch(0.55 0.18 245 / 0.07);
+    font-weight: 600;
+  }
+  .mh-fields-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 560px) { .mh-fields-grid { grid-template-columns: 1fr; } }
+  .mh-fields-grid .lov-field label { font-size: .78rem; }
+  .mh-fields-grid textarea.input {
+    resize: vertical;
+    min-height: 60px;
+    font-size: .82rem;
+  }
+  .mh-other-field { margin-bottom: .75rem; display: none; }
+
 </style>
 {% endblock %}
 
@@ -84,9 +137,19 @@
 <p class="lov-page-sub">Upload any combination of frontal, side, and cephalometric X-ray images. All fields are optional — analysis runs only for images you provide.</p>
 </div>
 
-<div id="globalLoading">
-  <div class="spin-ring"></div>
-  <p id="loadingMsg">Running analysis…</p>
+<div id="skeletonOverlay" class="analyzing-overlay">
+  <div class="analyzing-spinner"></div>
+  <div class="analyzing-text">Analyzing landmarks...</div>
+  <div class="analyzing-sub">Running computer vision models</div>
+  
+  <div class="analyzing-skeleton-grid">
+    <div class="skeleton-box sk-hero"></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="skeleton-box" style="height:100px;"></div>
+      <div class="skeleton-box" style="height:100px;"></div>
+      <div class="skeleton-box" style="height:100px;"></div>
+    </div>
+  </div>
 </div>
 
 <form method="POST" enctype="multipart/form-data" id="analysisForm">
@@ -147,6 +210,66 @@
           </select>
         </div>
       </div>
+
+      {# ── Medical History (optional, saved with new patient) ── #}
+      <div class="mh-section">
+        <p class="mh-section__title">Medical History</p>
+        <p class="mh-section__hint">Optional clinical background for safer treatment planning. Leave blank to record later.</p>
+
+        <div class="mh-conditions-grid">
+          {# "No known" first — spans full width #}
+          <label class="mh-condition-label mh-condition-label--no-known">
+            <input type="checkbox" name="medical_conditions" value="no_known_conditions" class="mh-cb">
+            <span>No known medical conditions</span>
+          </label>
+          {# All other conditions #}
+          {% for key, label in medical_condition_labels.items() %}
+            {% if key != "no_known_conditions" and key != "other" %}
+              <label class="mh-condition-label">
+                <input type="checkbox" name="medical_conditions" value="{{ key }}" class="mh-cb">
+                <span>{{ label }}</span>
+              </label>
+            {% endif %}
+          {% endfor %}
+          {# Other last #}
+          <label class="mh-condition-label">
+            <input type="checkbox" name="medical_conditions" value="other" class="mh-cb" id="mh-other-cb">
+            <span>Other</span>
+          </label>
+        </div>
+
+        <div class="mh-other-field" id="mh-other-field">
+          <label for="mh_other_text" class="lov-field" style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.3rem;">
+            Other condition details <span style="color:var(--destructive);">*</span>
+          </label>
+          <input type="text" id="mh_other_text" name="medical_other_details" class="input"
+                 placeholder="Describe the other condition…" maxlength="2000">
+        </div>
+
+        <div class="mh-fields-grid">
+          <div class="lov-field">
+            <label for="mh_medications">Current medications</label>
+            <textarea id="mh_medications" name="current_medications" class="input" rows="2"
+                      placeholder="List any medications the patient is currently taking…"></textarea>
+          </div>
+          <div class="lov-field">
+            <label for="mh_allergies">Allergies &amp; reactions</label>
+            <textarea id="mh_allergies" name="allergies" class="input" rows="2"
+                      placeholder="Drug, food, or material allergies and known reactions…"></textarea>
+          </div>
+          <div class="lov-field">
+            <label for="mh_surgeries">Previous surgeries</label>
+            <textarea id="mh_surgeries" name="previous_surgeries" class="input" rows="2"
+                      placeholder="Relevant past surgeries or procedures…"></textarea>
+          </div>
+          <div class="lov-field">
+            <label for="mh_notes">Additional medical notes</label>
+            <textarea id="mh_notes" name="additional_medical_notes" class="input" rows="2"
+                      placeholder="Any other clinically relevant information…"></textarea>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -326,20 +449,56 @@ document.getElementById("analysisForm").addEventListener("submit", function () {
   if (document.getElementById("inp-front").files[0]) parts.push("frontal");
   if (document.getElementById("inp-side").files[0])  parts.push("side");
   if (document.getElementById("inp-xray").files[0])  parts.push("X-ray");
-  document.getElementById("loadingMsg").textContent =
-    "Running analysis for: " + (parts.join(", ") || "uploaded images") + "…";
-  document.getElementById("globalLoading").classList.add("active");
+  const subEl = document.querySelector(".analyzing-sub");
+  if (subEl) {
+    subEl.textContent = "Running analysis for: " + (parts.join(", ") || "uploaded images") + "…";
+  }
+  document.getElementById("skeletonOverlay").classList.add("is-active");
 });
+
+/* ── Medical history mutual-exclusivity & Other reveal ── */
+(function () {
+  const allCbs    = Array.from(document.querySelectorAll(".mh-cb"));
+  const noKnownCb = allCbs.find(cb => cb.value === "no_known_conditions");
+  const otherCb   = document.getElementById("mh-other-cb");
+  const otherField= document.getElementById("mh-other-field");
+  const otherInput= document.getElementById("mh_other_text");
+  const otherCbs  = allCbs.filter(cb => cb !== noKnownCb);
+
+  function syncOther() {
+    if (!otherField) return;
+    const show = otherCb && otherCb.checked;
+    otherField.style.display = show ? "block" : "none";
+    if (otherInput) {
+      if (show) otherInput.setAttribute("required", "required");
+      else { otherInput.removeAttribute("required"); otherInput.value = ""; }
+    }
+  }
+
+  allCbs.forEach(cb => {
+    cb.addEventListener("change", function () {
+      if (this === noKnownCb && this.checked) {
+        otherCbs.forEach(c => { c.checked = false; });
+        syncOther();
+      } else if (this.checked && noKnownCb) {
+        noKnownCb.checked = false;
+      }
+      if (this === otherCb) syncOther();
+    });
+  });
+
+  syncOther();
+})();
 
 /* ── Patient picker ──────────────────────────────── */
 (function () {
-  const patientSelect = document.getElementById("patient_id");
-  const selectedAge   = document.getElementById("selected_age");
+  const patientSelect  = document.getElementById("patient_id");
+  const selectedAge    = document.getElementById("selected_age");
   const selectedGender = document.getElementById("selected_gender");
-  const existingBlock = document.getElementById("existingPatientBlock");
-  const newBlock      = document.getElementById("newPatientBlock");
-  const toggleBtn     = document.getElementById("togglePatientMode");
-  const newFieldIds   = ["new_name", "new_code", "new_age", "new_gender"];
+  const existingBlock  = document.getElementById("existingPatientBlock");
+  const newBlock       = document.getElementById("newPatientBlock");
+  const toggleBtn      = document.getElementById("togglePatientMode");
+  const newFieldIds    = ["new_name", "new_code", "new_age", "new_gender"];
   let mode = "existing";
 
   function formatGender(g) {
@@ -362,6 +521,9 @@ document.getElementById("analysisForm").addEventListener("submit", function () {
         el.removeAttribute("required");
         el.removeAttribute("name");
       });
+      /* Clear required on Other text so browser doesn't validate hidden input */
+      const oti = document.getElementById("mh_other_text");
+      if (oti) oti.removeAttribute("required");
     } else {
       existingBlock.style.display = "none";
       newBlock.style.display = "";
@@ -381,10 +543,23 @@ document.getElementById("analysisForm").addEventListener("submit", function () {
     }
   }
 
+  /* Submit validation: Other requires text, only when in new-patient mode */
+  document.getElementById("analysisForm").addEventListener("submit", function (e) {
+    if (mode !== "new") return;
+    const otherCb    = document.getElementById("mh-other-cb");
+    const otherInput = document.getElementById("mh_other_text");
+    if (otherCb && otherCb.checked && otherInput && !otherInput.value.trim()) {
+      e.preventDefault();
+      otherInput.focus();
+      otherInput.style.outline = "2px solid var(--destructive)";
+      otherInput.addEventListener("input", function () { this.style.outline = ""; }, { once: true });
+    }
+  });
+
   toggleBtn.addEventListener("click", () => setMode(mode === "existing" ? "new" : "existing"));
   patientSelect.addEventListener("change", function () {
     const opt = this.options[this.selectedIndex];
-    selectedAge.value   = opt.dataset.age    || "";
+    selectedAge.value    = opt.dataset.age    || "";
     selectedGender.value = formatGender(opt.dataset.gender || "");
   });
 

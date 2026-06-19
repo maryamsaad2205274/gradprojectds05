@@ -105,10 +105,13 @@
 
           <div class="case-card__actions" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
             <a class="btn btn--ghost btn--small" href="{{ url_for('view_result', case_id=c.id) }}">Open</a>
+            {% if c.status in ("REVIEWED", "REVIWED", "PENDING_REVIEW") %}
+              <a class="btn btn--secondary btn--small" href="{{ url_for('compare_progress', patient_id=patient.id, case_id=c.id) }}">Compare Progress</a>
+            {% endif %}
             {% if c.status != "REVIEWED" and c.status != "REVIWED" %}
               <a class="btn btn--primary btn--small" href="{{ url_for('review_case', case_id=c.id) }}">Review</a>
             {% endif %}
-            <form method="POST" action="{{ url_for('delete_case', case_id=c.id) }}" style="margin:0;display:inline;" onsubmit="return confirm('Delete case #{{ c.id }} and all its analysis data? This cannot be undone.');">
+            <form method="POST" action="{{ url_for('delete_case', case_id=c.id) }}" style="margin:0;display:inline;" onsubmit="return confirm('Delete case #{{ c.id }} and all its analysis data? Any saved progress comparisons linked to this case will also be deleted. This cannot be undone.');">
               <input type="hidden" name="next" value="{{ url_for('patient_cases', patient_id=patient.id) }}">
               <button type="submit" class="btn btn--danger btn--small">Delete</button>
             </form>
@@ -120,11 +123,68 @@
     </div>
 
   {% else %}
-    <div class="empty">
-      <div class="empty__title">No cases for this patient</div>
-      <div class="empty__text">Run a new analysis to create the first case record.</div>
+    <div class="empty-state">
+      <svg class="empty-state__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+        <path d="M8 7h6"/><path d="M8 11h8"/>
+      </svg>
+      <div class="empty-state__title">No cases for this patient</div>
+      <div class="empty-state__desc">Run a new analysis to create the first case record.</div>
     </div>
   {% endif %}
 </div>
+
+{% if progress_comparisons %}
+<div class="section" style="margin-top:2rem;">
+  <h2 class="section__title" style="margin-bottom:1rem;">Progress Comparisons</h2>
+  <div class="cases-grid">
+    {% for pc in progress_comparisons %}
+      {% set summ = pc.summary_json | from_json if pc.summary_json else {} %}
+      {% if pc.analysis_type == "side" %}
+        {% set type_label = "Side Profile Progress" %}
+      {% elif pc.analysis_type == "front" %}
+        {% set type_label = "Frontal Progress" %}
+      {% elif pc.analysis_type == "xray" %}
+        {% set type_label = "X-ray Progress" %}
+      {% else %}
+        {% set type_label = "Progress" %}
+      {% endif %}
+      <div class="case-card">
+        <div class="case-card__header">
+          <span class="case-badge case-badge--follow-up">{{ type_label }} Comparison #{{ pc.id }}</span>
+          <span class="case-card__date-badge">{{ pc.created_at.strftime("%Y-%m-%d") }}</span>
+        </div>
+        <div class="case-card__body" style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">
+          Baseline: Case #{{ pc.baseline_case_id }}
+          {% if pc.new_case_id %} → Progress: Case #{{ pc.new_case_id }}{% endif %}
+        </div>
+        {% if summ %}
+          {% if pc.analysis_type == "xray" %}
+            <div style="display:flex;gap:1rem;font-size:0.82rem;margin-bottom:0.5rem;">
+              <span style="color:#f59e0b;">&#9650; {{ summ.changed | default(0) }} changed</span>
+              <span style="color:var(--text-secondary);">&#8212; {{ summ.unchanged | default(0) }} unchanged</span>
+            </div>
+          {% else %}
+            <div style="display:flex;gap:1rem;font-size:0.82rem;margin-bottom:0.5rem;">
+              <span style="color:#22c55e;">&#9650; {{ summ.improved | default(0) }} improved</span>
+              <span style="color:#ef4444;">&#9660; {{ summ.worsened | default(0) }} worsened</span>
+              <span style="color:var(--text-secondary);">&#8212; {{ summ.stable | default(0) }} stable</span>
+            </div>
+          {% endif %}
+          {% if summ.overall_note %}
+            <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.5rem;">{{ summ.overall_note | truncate(120) }}</div>
+          {% endif %}
+        {% endif %}
+        {% if pc.doctor_notes %}
+          <div style="font-size:0.8rem;color:var(--text-muted);font-style:italic;margin-bottom:0.5rem;">"{{ pc.doctor_notes | truncate(80) }}"</div>
+        {% endif %}
+        <div class="case-card__actions" style="display:flex;gap:6px;">
+          <a class="btn btn--ghost btn--small" href="{{ url_for('view_progress_comparison', comparison_id=pc.id) }}">Open Comparison</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}

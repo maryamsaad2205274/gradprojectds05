@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}Analysis — Case #{{ case.id }} — DentAlign{% endblock %}
 {% block crumb %}Analysis{% endblock %}
 
@@ -18,34 +18,53 @@
         · Case date {{ case.display_case_date.strftime('%b %d, %Y') }}
       </p>
     </div>
-    <div class="da-action-bar">
-      <div class="da-action-bar__nav">
-        <a class="btn btn--ghost btn--small" href="{{ url_for('dashboard') }}">⌂ Dashboard</a>
-        {% if patient %}
-        <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=patient.id) }}">← {{ patient.name }}</a>
-        <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">All cases</a>
-        {% else %}
-        <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">← All cases</a>
-        {% endif %}
-      </div>
-      <div class="da-action-bar__primary">
-        {% if case.status not in ['NEEDS_REUPLOAD', 'FAILED'] %}
-        <a class="btn btn--primary btn--small" href="{{ url_for('download_report', case_id=case.id) }}">↓ Download report</a>
-        {% endif %}
-        <a class="btn btn--ghost btn--small" href="{{ url_for('new_analysis') }}{% if patient %}?patient_id={{ patient.id }}{% endif %}">↑ New Analysis</a>
-        <a class="btn btn--ghost btn--small" href="{{ url_for('review_case', case_id=case.id) }}">💬 Review</a>
-      </div>
-      <div class="da-action-bar__danger">
-        <form method="POST" action="{{ url_for('delete_case', case_id=case.id) }}" style="margin:0;" onsubmit="return confirm('Delete case #{{ case.id }} and all its images, results, and reports? This cannot be undone.');">
-          {% if patient %}
-          <input type="hidden" name="next" value="{{ url_for('patient_cases', patient_id=patient.id) }}">
-          {% else %}
-          <input type="hidden" name="next" value="{{ url_for('history') }}">
-          {% endif %}
-          <button type="submit" class="btn btn--danger btn--small">🗑 Delete</button>
-        </form>
-      </div>
+  </div>
+
+  {# ── Action toolbar — full-width row below patient name ── #}
+  <div class="da-action-bar" role="toolbar" aria-label="Case actions">
+
+    {# Navigation group #}
+    <div class="da-action-bar__group">
+      <a class="btn btn--ghost btn--small" href="{{ url_for('dashboard') }}">⌂ Dashboard</a>
+      {% if patient %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=patient.id) }}">← {{ patient.name }}</a>
+      <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">All cases</a>
+      {% else %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('history') }}">← All cases</a>
+      {% endif %}
     </div>
+
+    <div class="da-sep" aria-hidden="true"></div>
+
+    {# Primary actions #}
+    <div class="da-action-bar__group">
+      {% if case.status not in ['NEEDS_REUPLOAD', 'FAILED'] %}
+      <a class="btn btn--primary btn--small" href="{{ url_for('download_report', case_id=case.id) }}">↓ Download report</a>
+      {% endif %}
+      <a class="btn btn--secondary btn--small" href="{{ url_for('review_case', case_id=case.id) }}">💬 Review</a>
+      {% if patient %}
+      <button type="button" class="btn btn--secondary btn--small"
+              onclick="document.getElementById('schedule-visit-panel').open=true;document.getElementById('schedule-visit-panel').scrollIntoView({behavior:'smooth',block:'start'});">
+        📅 Appointment
+      </button>
+      {% endif %}
+      <a class="btn btn--ghost btn--small" href="{{ url_for('new_analysis') }}{% if patient %}?patient_id={{ patient.id }}{% endif %}">↑ New analysis</a>
+    </div>
+
+    {# Danger — pushed to the far right #}
+    <div class="da-action-bar__spacer"></div>
+    <div class="da-action-bar__group">
+      <form method="POST" action="{{ url_for('delete_case', case_id=case.id) }}" style="margin:0;"
+            onsubmit="return confirm('Delete case #{{ case.id }} and all its images, results, and reports? This cannot be undone.');">
+        {% if patient %}
+        <input type="hidden" name="next" value="{{ url_for('patient_cases', patient_id=patient.id) }}">
+        {% else %}
+        <input type="hidden" name="next" value="{{ url_for('history') }}">
+        {% endif %}
+        <button type="submit" class="btn btn--danger btn--small">🗑 Delete</button>
+      </form>
+    </div>
+
   </div>
 </div>
 
@@ -119,6 +138,7 @@
   <button type="button" class="lov-tab" data-tab="front">Front Analysis</button>
   <button type="button" class="lov-tab" data-tab="xray">🦷 X-Ray AI{% if not (ortho_diagnosis or ortho_status) %} <span style="font-size:.65rem;font-weight:600;padding:1px 7px;border-radius:999px;background:oklch(0.75 0.15 60 / 0.2);color:oklch(0.45 0.12 60);vertical-align:middle;margin-left:4px;">Add</span>{% endif %}</button>
   <button type="button" class="lov-tab" data-tab="summary">Clinical Summary</button>
+  <button type="button" class="lov-tab" data-tab="smile">😁 Smile Adjustment</button>
 </div>
 
 <div id="tab-panel-side" class="tab-panel is-active">
@@ -139,7 +159,7 @@
 <div class="panel panel--failed-upload">
   <h2 class="panel__title">Side view photo</h2>
   <p class="panel__sub">Uploaded but could not be analyzed.</p>
-  <div class="imgwrap"><img class="result-img" src="{{ side_upload_url }}" alt="Uploaded side photo"></div>
+  <div class="imgwrap"><img class="result-img" src="{{ side_upload_url }}" alt="Uploaded side photo" style="max-height:300px; object-fit:contain; width:auto; margin:0 auto;"></div>
   <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
 </div>
 {% elif show_side %}
@@ -195,29 +215,52 @@
 
   {# ── Side landmark confidence ─────────────────────────────────────── #}
   {% if side_confidence and side_confidence|length > 0 %}
+  {%- set _s_total = namespace(v=0.0) -%}
+  {%- set _s_low = namespace(n=0) -%}
+  {%- for c in side_confidence -%}
+    {%- set _s_total.v = _s_total.v + c -%}
+    {%- if c < 50 -%}{%- set _s_low.n = _s_low.n + 1 -%}{%- endif -%}
+  {%- endfor -%}
+  {%- set _s_avg = _s_total.v / (side_confidence|length) -%}
   <div class="lm-conf-section" id="sideConfSection">
-    <div class="lm-conf-title" id="sideConfToggle" onclick="toggleConf('side')" title="Show/hide confidence scores">
-      <span class="lm-conf-title__icon">📊</span>
-      <span>Landmark detection confidence</span>
-      <span class="lm-conf-title__chevron">▼</span>
-    </div>
-    <div class="lm-conf-grid" id="sideConfGrid">
-      {% for conf in side_confidence %}
-      {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
-      <div class="lm-conf-cell lm-conf-cell--{{ tier }}">
-        <span class="lm-conf-cell__label">Landmark {{ loop.index }}</span>
-        <span class="lm-conf-cell__pct">{{ "%.1f"|format(conf) }}%</span>
-        <div class="lm-conf-bar-track">
-          <div class="lm-conf-bar-fill" style="width:{{ conf }}%;"></div>
+    <button class="lm-conf-header" id="sideConfToggle" onclick="toggleConf('side')" aria-expanded="false" type="button">
+      <span class="lm-conf-header__left">
+        <span class="lm-conf-header__icon">📊</span>
+        <span>Landmark Detection Confidence</span>
+      </span>
+      <span class="lm-conf-header__right">
+        <span class="lm-conf-header__avg">Avg {{ "%.1f"|format(_s_avg) }}%</span>
+        {% if _s_low.n > 0 %}
+        <span class="lm-conf-badge lm-conf-badge--warn">{{ _s_low.n }} low</span>
+        <span class="lm-conf-badge lm-conf-badge--review">⚠ Review</span>
+        {% endif %}
+        <span class="lm-conf-chevron">▼</span>
+      </span>
+    </button>
+    <div class="lm-conf-body" id="sideConfGrid">
+      <div class="lm-conf-table">
+        {% for conf in side_confidence %}
+        {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
+        <div class="lm-conf-row">
+          <span class="lm-conf-row__num">{{ loop.index }}</span>
+          <div class="lm-conf-bar-track"><div class="lm-conf-bar-fill lm-conf-bar-fill--{{ tier }}" style="width:{{ conf }}%;"></div></div>
+          <span class="lm-conf-row__pct">{{ "%.1f"|format(conf) }}%</span>
+          <span class="lm-conf-badge lm-conf-badge--{{ tier }}">{{ "High" if tier == "high" else ("Moderate" if tier == "mid" else "Low") }}</span>
         </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      <div class="lm-conf-footer">
+        <span class="lm-conf-legend">
+          <span class="lm-conf-dot lm-conf-dot--high"></span> ≥ 75% High
+          <span class="lm-conf-dot lm-conf-dot--mid"></span> 50–74% Moderate
+          <span class="lm-conf-dot lm-conf-dot--low"></span> &lt; 50% Low
+        </span>
+        <p class="lm-conf-note">Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.</p>
+      </div>
     </div>
-    <p class="lm-conf-note">
-      🟢 ≥ 75% high · 🟡 50–74% moderate · 🔴 &lt; 50% low.
-      Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.
-    </p>
   </div>
+  {% else %}
+  <div class="lm-conf-missing">Confidence data is not available for this analysis.</div>
   {% endif %}
 </div>
 
@@ -589,6 +632,30 @@
   .state--approved { color:#15803d; }
   .state--declined { color:#b91c1c; }
 
+  /* ── Treatment SHAP explanation ─────────────────────────── */
+  .tx-expl { margin-top:.5rem; border-top:1px dashed var(--border,#e2e8f0); padding-top:.45rem; }
+  .tx-expl__summary {
+    cursor:pointer; font-size:.7rem; font-weight:800; color:#6366f1;
+    list-style:none; user-select:none;
+  }
+  .tx-expl__summary::-webkit-details-marker { display:none; }
+  .tx-expl__summary::before { content:'❔ '; }
+  .tx-expl__body { margin-top:.45rem; }
+  .tx-expl__short {
+    font-size:.78rem; font-weight:600; color:var(--foreground,#0f172a); margin:0 0 .4rem;
+  }
+  .tx-expl__text { font-size:.76rem; color:var(--muted-foreground,#475569); margin:0 0 .5rem; line-height:1.35; }
+  .tx-factor { display:flex; flex-direction:column; margin-bottom:.3rem; }
+  .tx-factor__k {
+    font-size:.62rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--muted-foreground,#64748b);
+  }
+  .tx-factor__v { font-size:.76rem; font-weight:600; color:var(--foreground,#0f172a); }
+  .tx-tech { margin-top:.4rem; }
+  .tx-tech__summary { cursor:pointer; font-size:.66rem; color:var(--muted-foreground,#64748b); }
+  .tx-tech__body { font-size:.68rem; color:var(--muted-foreground,#64748b); margin-top:.25rem; font-family:ui-monospace,monospace; }
+  .tx-tech__row { margin:.1rem 0; }
+
   /* ── Review summary panel ───────────────────────────────── */
   .rev-summary {
     background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
@@ -708,6 +775,45 @@
   }
   function pct(v) { return (Number(v || 0) * 100).toFixed(1); }
 
+  function strengthWord(s) {
+    if (s === 'strong') return 'strong support';
+    if (s === 'moderate') return 'moderate support';
+    if (s === 'small') return 'small support';
+    return 'minimal influence';
+  }
+
+  /* ── "Why this treatment consideration?" expandable per card ──────────── */
+  function treatmentExplanationHtml(expl) {
+    if (!expl) return '';
+    if (!expl.available) {
+      return '<details class="tx-expl"><summary class="tx-expl__summary">Why this treatment consideration?</summary>' +
+        '<div class="tx-expl__body"><p class="tx-expl__text">' + escHtml(expl.summary || 'Explanation unavailable.') + '</p></div></details>';
+    }
+    var mf = expl.main_factor || {}, sf = expl.secondary_factor || {};
+    var factorRows =
+      '<div class="tx-factor"><span class="tx-factor__k">Primary factor</span><span class="tx-factor__v">' +
+        escHtml(mf.feature) + (mf.value != null && typeof mf.value === 'string' ? ': ' + escHtml(mf.value) : '') +
+        ' — ' + escHtml(strengthWord(mf.strength)) + '</span></div>' +
+      '<div class="tx-factor"><span class="tx-factor__k">Secondary factor</span><span class="tx-factor__v">' +
+        escHtml(sf.feature) + (sf.value != null && typeof sf.value === 'string' ? ': ' + escHtml(sf.value) : '') +
+        ' — ' + escHtml(strengthWord(sf.strength)) + '</span></div>';
+
+    // Optional technical details (raw SHAP values) — hidden unless expanded.
+    var tech = (expl.features || []).map(function (f) {
+      return '<div class="tx-tech__row">' + escHtml(f.feature) +
+        ': SHAP ' + escHtml((f.shap_value).toFixed(3)) + ' (' + escHtml(f.direction) + ')</div>';
+    }).join('');
+
+    return '<details class="tx-expl"><summary class="tx-expl__summary">Why this treatment consideration?</summary>' +
+      '<div class="tx-expl__body">' +
+        '<p class="tx-expl__short">' + escHtml(expl.short_summary) + '</p>' +
+        '<p class="tx-expl__text">' + escHtml(expl.summary) + '</p>' +
+        factorRows +
+        '<details class="tx-tech"><summary class="tx-tech__summary">Technical details</summary>' +
+          '<div class="tx-tech__body">' + tech + '</div></details>' +
+      '</div></details>';
+  }
+
   /* ── Render the four review cards ─────────────────────────────────────── */
   function cardsHtml(state) {
     var html = '<div class="mml-grid">';
@@ -729,6 +835,7 @@
             '<span class="mml-card__row-value">' + escHtml(m.model_treatment) + '</span>' +
             '<div class="mml-conf-row"><div class="mml-conf-bar-track"><div class="mml-conf-bar-fill" style="width:' + treatPct + '%;"></div></div><span class="mml-conf-pct">' + treatPct + '%</span></div>' +
           '</div>' +
+          treatmentExplanationHtml(m.treatment_explanation) +
           '<div class="mml-review">' +
             '<span class="mml-review__label">Doctor review</span>' +
             '<div class="mml-review__btns">' +
@@ -1019,7 +1126,7 @@
 <div class="panel panel--failed-upload">
   <h2 class="panel__title">Frontal non-smile photo</h2>
   <p class="panel__sub">Uploaded but could not be analyzed.</p>
-  <div class="imgwrap"><img class="result-img" src="{{ front_upload_url }}" alt="Uploaded frontal photo"></div>
+  <div class="imgwrap"><img class="result-img" src="{{ front_upload_url }}" alt="Uploaded frontal photo" style="max-height:300px; object-fit:contain; width:auto; margin:0 auto;"></div>
   <p class="case-note case-note--warn">{{ case.failure_message or friendly_fail }}</p>
 </div>
 {% elif show_front %}
@@ -1075,29 +1182,52 @@
 
   {# ── Frontal landmark confidence ──────────────────────────────────── #}
   {% if front_ns_confidence and front_ns_confidence|length > 0 %}
+  {%- set _f_total = namespace(v=0.0) -%}
+  {%- set _f_low = namespace(n=0) -%}
+  {%- for c in front_ns_confidence -%}
+    {%- set _f_total.v = _f_total.v + c -%}
+    {%- if c < 50 -%}{%- set _f_low.n = _f_low.n + 1 -%}{%- endif -%}
+  {%- endfor -%}
+  {%- set _f_avg = _f_total.v / (front_ns_confidence|length) -%}
   <div class="lm-conf-section" id="frontConfSection">
-    <div class="lm-conf-title" id="frontConfToggle" onclick="toggleConf('front')" title="Show/hide confidence scores">
-      <span class="lm-conf-title__icon">📊</span>
-      <span>Landmark detection confidence</span>
-      <span class="lm-conf-title__chevron">▼</span>
-    </div>
-    <div class="lm-conf-grid" id="frontConfGrid">
-      {% for conf in front_ns_confidence %}
-      {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
-      <div class="lm-conf-cell lm-conf-cell--{{ tier }}">
-        <span class="lm-conf-cell__label">Landmark {{ loop.index }}</span>
-        <span class="lm-conf-cell__pct">{{ "%.1f"|format(conf) }}%</span>
-        <div class="lm-conf-bar-track">
-          <div class="lm-conf-bar-fill" style="width:{{ conf }}%;"></div>
+    <button class="lm-conf-header" id="frontConfToggle" onclick="toggleConf('front')" aria-expanded="false" type="button">
+      <span class="lm-conf-header__left">
+        <span class="lm-conf-header__icon">📊</span>
+        <span>Landmark Detection Confidence</span>
+      </span>
+      <span class="lm-conf-header__right">
+        <span class="lm-conf-header__avg">Avg {{ "%.1f"|format(_f_avg) }}%</span>
+        {% if _f_low.n > 0 %}
+        <span class="lm-conf-badge lm-conf-badge--warn">{{ _f_low.n }} low</span>
+        <span class="lm-conf-badge lm-conf-badge--review">⚠ Review</span>
+        {% endif %}
+        <span class="lm-conf-chevron">▼</span>
+      </span>
+    </button>
+    <div class="lm-conf-body" id="frontConfGrid">
+      <div class="lm-conf-table">
+        {% for conf in front_ns_confidence %}
+        {% set tier = 'high' if conf >= 75 else ('mid' if conf >= 50 else 'low') %}
+        <div class="lm-conf-row">
+          <span class="lm-conf-row__num">{{ loop.index }}</span>
+          <div class="lm-conf-bar-track"><div class="lm-conf-bar-fill lm-conf-bar-fill--{{ tier }}" style="width:{{ conf }}%;"></div></div>
+          <span class="lm-conf-row__pct">{{ "%.1f"|format(conf) }}%</span>
+          <span class="lm-conf-badge lm-conf-badge--{{ tier }}">{{ "High" if tier == "high" else ("Moderate" if tier == "mid" else "Low") }}</span>
         </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      <div class="lm-conf-footer">
+        <span class="lm-conf-legend">
+          <span class="lm-conf-dot lm-conf-dot--high"></span> ≥ 75% High
+          <span class="lm-conf-dot lm-conf-dot--mid"></span> 50–74% Moderate
+          <span class="lm-conf-dot lm-conf-dot--low"></span> &lt; 50% Low
+        </span>
+        <p class="lm-conf-note">Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.</p>
+      </div>
     </div>
-    <p class="lm-conf-note">
-      🟢 ≥ 75% high · 🟡 50–74% moderate · 🔴 &lt; 50% low.
-      Low-confidence landmarks may need manual review via <em>Adjust Landmarks</em>.
-    </p>
   </div>
+  {% else %}
+  <div class="lm-conf-missing">Confidence data is not available for this analysis.</div>
   {% endif %}
 </div>
 
@@ -1998,6 +2128,315 @@
 
 </div>{# /tab-panel-xray #}
 
+{# ══════════════════ SMILE ADJUSTMENT TAB ══════════════════ #}
+<div id="tab-panel-smile" class="tab-panel">
+<style>
+  .sa-shell { display:flex; flex-direction:column; gap:1.25rem; }
+  .sa-disclaimer {
+    background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;
+    padding:.6rem .9rem; font-size:.8rem; color:#9a3412;
+  }
+  .sa-card {
+    background:var(--card,#fff); border:1px solid var(--border,#e2e8f0);
+    border-radius:14px; padding:1.1rem 1.2rem;
+  }
+  .sa-card__title {
+    font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--muted-foreground,#64748b); margin:0 0 .85rem;
+  }
+  /* Upload */
+  .sa-drop {
+    border:2px dashed var(--border,#cbd5e1); border-radius:12px; padding:1.6rem 1rem;
+    text-align:center; cursor:pointer; transition:.15s; background:#f8fafc;
+  }
+  .sa-drop.is-drag { border-color:#6366f1; background:#eef2ff; }
+  .sa-drop__hint { font-size:.85rem; color:var(--muted-foreground,#64748b); }
+  .sa-drop__hint strong { color:#6366f1; }
+  .sa-preview { margin-top:.9rem; position:relative; display:none; }
+  .sa-preview img { max-width:100%; max-height:340px; border-radius:10px; border:1px solid var(--border,#e2e8f0); display:block; margin:0 auto; }
+  .sa-preview__remove {
+    position:absolute; top:.4rem; right:.4rem; background:rgba(15,23,42,.75); color:#fff;
+    border:0; border-radius:7px; padding:.25rem .55rem; font-size:.72rem; cursor:pointer;
+  }
+  /* Style cards */
+  .sa-style-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.7rem; }
+  @media (max-width:640px){ .sa-style-grid{ grid-template-columns:1fr; } }
+  .sa-style {
+    cursor:pointer; border:1.5px solid var(--border,#e2e8f0); border-radius:11px;
+    padding:.85rem .7rem; text-align:center; background:#fff; transition:.12s;
+  }
+  .sa-style:hover { border-color:#a5b4fc; }
+  .sa-style.is-active { border-color:#6366f1; box-shadow:0 0 0 1px #6366f1 inset; background:#eef2ff; }
+  .sa-style__name { font-size:.9rem; font-weight:800; color:var(--foreground,#0f172a); }
+  .sa-style__sub  { font-size:.72rem; color:var(--muted-foreground,#64748b); margin-top:.15rem; }
+  /* Shade chips */
+  .sa-shade-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem; }
+  @media (max-width:520px){ .sa-shade-grid{ grid-template-columns:repeat(2,1fr); } }
+  .sa-shade {
+    cursor:pointer; border:1.5px solid var(--border,#e2e8f0); border-radius:10px;
+    padding:.65rem .5rem; text-align:center; background:#fff; transition:.12s;
+  }
+  .sa-shade.is-active { border-color:#6366f1; box-shadow:0 0 0 1px #6366f1 inset; }
+  .sa-shade__swatch { width:100%; height:34px; border-radius:7px; border:1px solid rgba(0,0,0,.08); margin-bottom:.35rem; }
+  .sa-shade__code { font-size:.82rem; font-weight:800; color:var(--foreground,#0f172a); }
+  /* Slider */
+  .sa-slider-row { display:flex; align-items:center; gap:1rem; }
+  .sa-slider-row input[type="range"] { flex:1; accent-color:#6366f1; }
+  .sa-slider-val {
+    min-width:64px; text-align:center; font-weight:800; font-size:.95rem; color:#6366f1;
+    background:#eef2ff; border-radius:8px; padding:.3rem .4rem;
+  }
+  /* Actions */
+  .sa-actions { display:flex; flex-wrap:wrap; gap:.6rem; }
+  .sa-btn {
+    cursor:pointer; padding:.6rem 1.1rem; border-radius:9px; border:1px solid var(--border,#e2e8f0);
+    background:#fff; font-weight:800; font-size:.85rem; color:var(--foreground,#0f172a);
+  }
+  .sa-btn--primary { background:#6366f1; border-color:#6366f1; color:#fff; }
+  .sa-btn--primary:disabled { background:#c7d2fe; border-color:#c7d2fe; cursor:not-allowed; }
+  .sa-status { font-size:.82rem; margin-top:.3rem; }
+  .sa-status--error { color:#b91c1c; }
+  .sa-status--running { color:#b45309; }
+  .sa-status--done { color:#15803d; }
+  /* Result */
+  .sa-result { display:none; }
+  .sa-compare { display:grid; grid-template-columns:1fr 1fr; gap:.9rem; }
+  @media (max-width:640px){ .sa-compare{ grid-template-columns:1fr; } }
+  .sa-compare figure { margin:0; }
+  .sa-compare figcaption { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted-foreground,#64748b); margin-bottom:.3rem; }
+  .sa-compare img { width:100%; border-radius:10px; border:1px solid var(--border,#e2e8f0); display:block; }
+  .sa-toggle-wrap { text-align:center; }
+  .sa-single { display:none; }
+  .sa-single img { max-width:100%; max-height:460px; border-radius:10px; border:1px solid var(--border,#e2e8f0); margin:0 auto; display:block; }
+  .sa-summary { font-size:.8rem; color:var(--foreground,#0f172a); margin-top:.7rem; }
+  .sa-summary span { display:inline-block; background:#f1f5f9; border-radius:999px; padding:.2rem .6rem; margin:.15rem .25rem .15rem 0; font-weight:600; }
+</style>
+
+<div class="sa-shell">
+  <div class="sa-disclaimer">
+    <strong>Esthetic simulation only.</strong> This generated smile preview is an
+    educational visualization and is not a guaranteed clinical outcome.
+  </div>
+
+  {# A. Upload #}
+  <div class="sa-card">
+    <p class="sa-card__title">Upload smiling photo</p>
+    <div class="sa-drop" id="saDrop">
+      <div class="sa-drop__hint">
+        <strong>Click to browse</strong> or drag &amp; drop a smiling patient photo<br>
+        <span style="font-size:.72rem;">JPG, PNG, WEBP or BMP</span>
+      </div>
+      <input type="file" id="saFile" accept="image/png,image/jpeg,image/webp,image/bmp" style="display:none;">
+    </div>
+    <div class="sa-preview" id="saPreview">
+      <button type="button" class="sa-preview__remove" id="saRemove">✕ Remove</button>
+      <img id="saPreviewImg" alt="Uploaded smile">
+    </div>
+  </div>
+
+  {# B. Tooth style #}
+  <div class="sa-card">
+    <p class="sa-card__title">Cosmetic tooth outline</p>
+    <div class="sa-style-grid" id="saStyleGrid">
+      <div class="sa-style" data-style="natural"><div class="sa-style__name">Natural</div><div class="sa-style__sub">Ovoid Curves</div></div>
+      <div class="sa-style" data-style="hollywood"><div class="sa-style__name">Hollywood</div><div class="sa-style__sub">Bold Square</div></div>
+      <div class="sa-style" data-style="triangular"><div class="sa-style__name">Triangular</div><div class="sa-style__sub">Narrow Neck</div></div>
+    </div>
+  </div>
+
+  {# C. Veneer shade #}
+  <div class="sa-card">
+    <p class="sa-card__title">Veneer shade studio</p>
+    <div class="sa-shade-grid" id="saShadeGrid"></div>
+  </div>
+
+  {# D. Gummy smile #}
+  <div class="sa-card">
+    <p class="sa-card__title">Gummy smile correction (mm)</p>
+    <div class="sa-slider-row">
+      <input type="range" id="saGummy" min="0" max="5" step="0.5" value="0">
+      <span class="sa-slider-val" id="saGummyVal">0.0 mm</span>
+    </div>
+    <p style="font-size:.72rem;color:var(--muted-foreground,#64748b);margin:.5rem 0 0;">
+      Gingival display reduction requested for the smile-line correction (0–5 mm).
+    </p>
+  </div>
+
+  {# E. Actions #}
+  <div class="sa-card">
+    <div class="sa-actions">
+      <button type="button" class="sa-btn sa-btn--primary" id="saGenerate">Generate Smile Adjustment</button>
+      <button type="button" class="sa-btn" id="saReset">Reset</button>
+      <button type="button" class="sa-btn" id="saCompare" style="display:none;">Compare Before / After</button>
+    </div>
+    <p class="sa-status" id="saStatus"></p>
+  </div>
+
+  {# F. Result #}
+  <div class="sa-card sa-result" id="saResult">
+    <p class="sa-card__title">Smile Adjustment Result</p>
+    <div class="sa-compare" id="saCompareView">
+      <figure><figcaption>Before</figcaption><img id="saBeforeImg" alt="Before"></figure>
+      <figure><figcaption>After</figcaption><img id="saAfterImg" alt="After"></figure>
+    </div>
+    <div class="sa-single" id="saSingleView">
+      <div class="sa-toggle-wrap" style="margin-bottom:.6rem;">
+        <button type="button" class="sa-btn" id="saToggleSide" style="padding:.4rem .9rem;">Showing: After</button>
+      </div>
+      <img id="saSingleImg" alt="Smile preview">
+    </div>
+    <div class="sa-summary" id="saSummary"></div>
+    <div class="sa-disclaimer" id="saResultDisc" style="margin-top:.7rem;"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var CASE_ID = {{ case.id }};
+  var SHADES = [
+    {code:'BL1', color:'#f6f4ec'}, {code:'BL2', color:'#f2efe4'},
+    {code:'A1', color:'#ece4cf'},  {code:'A2', color:'#e3d6ba'},
+    {code:'A3', color:'#d8c6a3'},  {code:'B1', color:'#ece2c6'},
+    {code:'B2', color:'#e2d3ab'},  {code:'C1', color:'#dcd5c2'}
+  ];
+  var state = { file:null, style:null, shade:null, gummy:0,
+                beforeUrl:null, afterUrl:null, showingAfter:true };
+
+  var $ = function (id){ return document.getElementById(id); };
+  var drop = $('saDrop'), fileInput = $('saFile'), preview = $('saPreview'),
+      previewImg = $('saPreviewImg'), removeBtn = $('saRemove'),
+      gummy = $('saGummy'), gummyVal = $('saGummyVal'),
+      genBtn = $('saGenerate'), resetBtn = $('saReset'),
+      compareBtn = $('saCompare'), statusEl = $('saStatus'),
+      resultBox = $('saResult');
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function setStatus(cls, msg){ statusEl.className='sa-status'+(cls?' sa-status--'+cls:''); statusEl.textContent=msg||''; }
+
+  // ── Build shade chips ──
+  (function buildShades(){
+    var grid=$('saShadeGrid');
+    grid.innerHTML = SHADES.map(function(s){
+      return '<div class="sa-shade" data-shade="'+s.code+'">'+
+        '<div class="sa-shade__swatch" style="background:'+s.color+';"></div>'+
+        '<div class="sa-shade__code">'+s.code+'</div></div>';
+    }).join('');
+    grid.querySelectorAll('.sa-shade').forEach(function(el){
+      el.addEventListener('click', function(){
+        grid.querySelectorAll('.sa-shade').forEach(function(c){c.classList.remove('is-active');});
+        el.classList.add('is-active'); state.shade=el.dataset.shade;
+      });
+    });
+  })();
+
+  // ── Style selection ──
+  $('saStyleGrid').querySelectorAll('.sa-style').forEach(function(el){
+    el.addEventListener('click', function(){
+      $('saStyleGrid').querySelectorAll('.sa-style').forEach(function(c){c.classList.remove('is-active');});
+      el.classList.add('is-active'); state.style=el.dataset.style;
+    });
+  });
+
+  // ── Upload ──
+  function setFile(f){
+    if(!f) return;
+    if(!/^image\/(png|jpe?g|webp|bmp)$/.test(f.type)){
+      setStatus('error','Unsupported file type. Upload a JPG, PNG, WEBP, or BMP image.');
+      return;
+    }
+    state.file=f;
+    var reader=new FileReader();
+    reader.onload=function(e){ previewImg.src=e.target.result; preview.style.display='block'; drop.style.display='none'; };
+    reader.readAsDataURL(f);
+    setStatus('', '');
+  }
+  drop.addEventListener('click', function(){ fileInput.click(); });
+  fileInput.addEventListener('change', function(){ if(fileInput.files[0]) setFile(fileInput.files[0]); });
+  drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('is-drag'); });
+  drop.addEventListener('dragleave', function(){ drop.classList.remove('is-drag'); });
+  drop.addEventListener('drop', function(e){ e.preventDefault(); drop.classList.remove('is-drag'); if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+  removeBtn.addEventListener('click', function(){
+    state.file=null; fileInput.value=''; previewImg.src=''; preview.style.display='none'; drop.style.display='';
+  });
+
+  // ── Gummy slider ──
+  gummy.addEventListener('input', function(){ state.gummy=parseFloat(gummy.value); gummyVal.textContent=state.gummy.toFixed(1)+' mm'; });
+
+  // ── Reset ──
+  resetBtn.addEventListener('click', function(){
+    removeBtn.click();
+    $('saStyleGrid').querySelectorAll('.sa-style').forEach(function(c){c.classList.remove('is-active');});
+    $('saShadeGrid').querySelectorAll('.sa-shade').forEach(function(c){c.classList.remove('is-active');});
+    state.style=null; state.shade=null; state.gummy=0;
+    gummy.value=0; gummyVal.textContent='0.0 mm';
+    resultBox.style.display='none'; compareBtn.style.display='none';
+    setStatus('', '');
+  });
+
+  // ── Validation ──
+  function validate(){
+    if(!state.file) return 'Please upload a smiling patient photo first.';
+    if(!state.style) return 'Please select a cosmetic tooth style.';
+    if(!state.shade) return 'Please select a veneer shade.';
+    if(isNaN(state.gummy)) return 'Please set a valid gummy smile value.';
+    return null;
+  }
+
+  // ── Before/After toggle ──
+  compareBtn.addEventListener('click', function(){
+    var cmp=$('saCompareView'), single=$('saSingleView');
+    var sideBySide = cmp.style.display!=='none';
+    if(sideBySide){ cmp.style.display='none'; single.style.display='block'; renderSingle(); compareBtn.textContent='Side-by-side view'; }
+    else { cmp.style.display='grid'; single.style.display='none'; compareBtn.textContent='Compare Before / After'; }
+  });
+  function renderSingle(){
+    $('saSingleImg').src = state.showingAfter ? state.afterUrl : state.beforeUrl;
+    $('saToggleSide').textContent = 'Showing: ' + (state.showingAfter?'After':'Before');
+  }
+  $('saToggleSide').addEventListener('click', function(){ state.showingAfter=!state.showingAfter; renderSingle(); });
+
+  // ── Generate ──
+  genBtn.addEventListener('click', function(){
+    var v=validate();
+    if(v){ setStatus('error', v); return; }
+    genBtn.disabled=true;
+    setStatus('running','⏳ Generating smile adjustment… this can take up to a minute.');
+
+    var fd=new FormData();
+    fd.append('image', state.file);
+    fd.append('tooth_style', state.style);
+    fd.append('shade', state.shade);
+    fd.append('gummy_mm', String(state.gummy));
+
+    fetch('/case/'+CASE_ID+'/smile-adjustment', { method:'POST', body:fd })
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+      .then(function(res){
+        genBtn.disabled=false;
+        var d=res.body;
+        if(d.success){
+          setStatus('done','✓ Smile adjustment generated.');
+          state.beforeUrl=d.original_url; state.afterUrl=d.result_url; state.showingAfter=true;
+          $('saBeforeImg').src=d.original_url; $('saAfterImg').src=d.result_url;
+          $('saSummary').innerHTML =
+            '<span>Style: '+esc(d.tooth_style_label)+'</span>'+
+            '<span>Shade: '+esc(d.shade)+' ('+esc(d.shade_description)+')</span>'+
+            '<span>Gummy correction: '+esc(d.gummy_mm)+' mm</span>';
+          $('saResultDisc').textContent=d.disclaimer||'';
+          resultBox.style.display='block';
+          compareBtn.style.display='';
+          $('saCompareView').style.display='grid'; $('saSingleView').style.display='none';
+          compareBtn.textContent='Compare Before / After';
+          resultBox.scrollIntoView({behavior:'smooth', block:'start'});
+        } else {
+          setStatus('error','✗ '+(d.error||'Smile adjustment failed.'));
+        }
+      })
+      .catch(function(err){ genBtn.disabled=false; setStatus('error','✗ Network error: '+err.message); });
+  });
+})();
+</script>
+</div>{# /tab-panel-smile #}
+
 <!-- ── Landmark index preview (diagnostic tool) ─────── -->
 {% if side_overlay %}
 <details class="admin-collapsible" style="margin-top:1.5rem;">
@@ -2023,7 +2462,7 @@
 {% if patient %}
 <div style="margin-top:2rem;">
 
-  <details class="admin-collapsible" style="margin-bottom:1rem;">
+  <details class="admin-collapsible" style="margin-bottom:1rem;" id="schedule-visit-panel">
     <summary class="admin-collapsible__toggle">
       📅 Schedule next visit
       {% if next_appt %}<span style="font-size:.76rem;color:#94a3b8;font-weight:400;margin-left:.5rem;">Current: {{ next_appt.appointment_date.strftime('%b %d, %Y') }}</span>{% endif %}

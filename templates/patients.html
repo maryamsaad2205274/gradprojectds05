@@ -93,61 +93,165 @@
   {# Hidden detail panels — copied into drawer on row click #}
   {% for p in patients %}
     {% set portal_code = access_code_by_patient.get(p.id) %}
+    {% set c_counts = case_counts_by_patient.get(p.id, {}) %}
+    {% set p_cases = cases_by_patient.get(p.id, []) %}
+    
     <div id="patient-detail-source-{{ p.id }}" class="patient-detail-source">
-      <div class="patient-mini-card">
-        <h3 class="patient-mini-card__title">Demographics</h3>
-        <div class="lov-form-grid" style="margin-top:10px;">
-          <div>
-            <p style="margin:0;font-size:0.7rem;color:var(--muted-foreground);">Age</p>
-            <p style="margin:4px 0 0;font-weight:600;">{{ p.age if p.age is not none else '—' }}</p>
-          </div>
-          <div>
-            <p style="margin:0;font-size:0.7rem;color:var(--muted-foreground);">Gender</p>
-            <p style="margin:4px 0 0;font-weight:600;">
-              {% if p.gender == 'MALE' %}Male{% elif p.gender == 'FEMALE' %}Female{% else %}—{% endif %}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div class="patient-mini-card">
-        <div class="patient-mini-card__head">
-          <h3 class="patient-mini-card__title">
-            <span class="patient-mini-card__title-icon" aria-hidden="true">🔑</span>
-            Patient portal access code
-          </h3>
-        </div>
-        <p class="patient-mini-card__sub">
-          Share this code with the patient so they can log into their portal to upload photos and view their plan.
-        </p>
-        {% if portal_code %}
-          <div class="patient-code-display">
-            <div
-              class="patient-code-value"
-              id="code-display-{{ p.id }}"
-              data-code="{{ portal_code }}"
-              data-visible="true"
-            >{{ portal_code }}</div>
-            <button type="button" class="patient-code-toggle" data-toggle-code="{{ p.id }}" aria-label="Show or hide code">👁</button>
-          </div>
-          <div class="patient-code-actions">
-            <button type="button" class="btn btn--ghost btn--small" data-copy-code="{{ portal_code }}">⧉ Copy</button>
-            <form method="POST" action="{{ url_for('regenerate_patient_code_route', patient_id=p.id) }}" style="display:inline;">
-              <button type="submit" class="btn btn--ghost btn--small" onclick="return confirm('Generate a new code? The previous code will stop working immediately.');">↻ Regenerate</button>
-            </form>
-          </div>
-          <p class="patient-code-footnote">Regenerating immediately invalidates the previous code.</p>
-        {% else %}
-          <div class="patient-code-empty">
-            <p>No portal code yet for this patient.</p>
-            <form method="POST" action="{{ url_for('generate_patient_code', patient_id=p.id) }}">
+      
+      {# Top section: Portal Code & Analysis #}
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom: 20px;">
+        <div>
+          {% if portal_code %}
+            <div style="font-size:0.8rem; color:var(--muted-foreground); margin-bottom:4px;">Portal Access Code</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="patient-code-value" id="code-display-{{ p.id }}" data-code="{{ portal_code }}" data-visible="true" style="padding: 6px 12px; font-size:1.1rem; margin:0; flex:none;">{{ portal_code }}</div>
+              <button type="button" class="btn btn--ghost btn--small" data-copy-code="{{ portal_code }}">⧉ Copy</button>
+              <form method="POST" action="{{ url_for('regenerate_patient_code_route', patient_id=p.id) }}" style="display:inline; margin:0;">
+                <button type="submit" class="btn btn--ghost btn--small" onclick="return confirm('Generate a new code? The previous code will stop working immediately.');">↻ Regenerate</button>
+              </form>
+            </div>
+          {% else %}
+            <div style="font-size:0.8rem; color:var(--muted-foreground); margin-bottom:4px;">Portal Access Code</div>
+            <form method="POST" action="{{ url_for('generate_patient_code', patient_id=p.id) }}" style="margin:0;">
               <button type="submit" class="btn btn--primary btn--small">Generate access code</button>
             </form>
-          </div>
-        {% endif %}
+          {% endif %}
+        </div>
+        <div>
+          <a class="btn btn--primary" href="{{ url_for('new_analysis') }}?patient_id={{ p.id }}">+ New Analysis</a>
+        </div>
       </div>
 
-      <div class="patient-mini-card">
+      {# Stats #}
+      <div class="da-stats" style="grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;">
+        <div class="da-stat-card" style="padding: 16px;">
+          <div class="da-stat-card__label">Total Cases</div>
+          <div class="da-stat-card__value" style="font-size: 1.5rem; margin-top: 6px;">{{ c_counts.get('total', 0) }}</div>
+        </div>
+        <div class="da-stat-card" style="padding: 16px;">
+          <div class="da-stat-card__label">Needs Review</div>
+          <div class="da-stat-card__value" style="font-size: 1.5rem; margin-top: 6px; color: {% if c_counts.get('needs_review',0) > 0 %}#b45309{% else %}inherit{% endif %};">{{ c_counts.get('needs_review', 0) }}</div>
+        </div>
+        <div class="da-stat-card" style="padding: 16px;">
+          <div class="da-stat-card__label">Needs Reupload</div>
+          <div class="da-stat-card__value" style="font-size: 1.5rem; margin-top: 6px; color: {% if c_counts.get('needs_reupload',0) > 0 %}#b91c1c{% else %}inherit{% endif %};">{{ c_counts.get('needs_reupload', 0) }}</div>
+        </div>
+        <div class="da-stat-card" style="padding: 16px;">
+          <div class="da-stat-card__label">Reviewed</div>
+          <div class="da-stat-card__value" style="font-size: 1.5rem; margin-top: 6px; color: #15803d;">{{ c_counts.get('reviewed', 0) }}</div>
+        </div>
+      </div>
+
+      {# Medical History #}
+      <div class="patient-mini-card" style="margin-bottom: 20px;">
+        <div class="patient-mini-card__head">
+          <h3 class="patient-mini-card__title">
+            <span class="patient-mini-card__title-icon" aria-hidden="true">⚕️</span>
+            Medical History
+          </h3>
+          <button type="button" class="btn btn--ghost btn--small mh-edit-btn" onclick="(function(btn){var card=btn.closest('.patient-mini-card');card.querySelector('[data-mh-form]').style.display='block';btn.style.display='none';card.querySelector('[data-mh-view]').style.display='none';})(this)">Edit</button>
+        </div>
+
+        <div data-mh-view>
+          {% if p.medical_history_recorded is none %}
+            <p style="font-size: 0.85rem; color: var(--muted-foreground); margin: 10px 0;">Medical history has not been recorded.</p>
+          {% else %}
+            {% set conditions = [] %}
+            {% if p.medical_conditions_json %}
+              {% set conditions = p.medical_conditions_json|from_json %}
+            {% endif %}
+            
+            {% if "no_known_conditions" in conditions %}
+              <p style="font-size: 0.85rem; margin: 10px 0; font-weight: 500;">No known medical conditions reported.</p>
+            {% else %}
+              <div style="font-size: 0.85rem; margin: 10px 0;">
+                <strong style="display:block; margin-bottom:4px; color:var(--muted-foreground);">Conditions</strong>
+                <ul style="margin: 0 0 12px 20px; padding: 0;">
+                  {% for c in conditions %}
+                    <li>
+                      {{ medical_condition_labels.get(c, c) }}
+                      {% if c == "other" and p.medical_other_details %}
+                        — <em>{{ p.medical_other_details }}</em>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+
+                {% if p.current_medications %}
+                  <strong style="display:block; margin-bottom:4px; color:var(--muted-foreground);">Current Medications</strong>
+                  <p style="margin: 0 0 12px 0;">{{ p.current_medications }}</p>
+                {% endif %}
+
+                {% if p.allergies %}
+                  <strong style="display:block; margin-bottom:4px; color:var(--muted-foreground);">Allergies</strong>
+                  <p style="margin: 0 0 12px 0;">{{ p.allergies }}</p>
+                {% endif %}
+
+                {% if p.previous_surgeries %}
+                  <strong style="display:block; margin-bottom:4px; color:var(--muted-foreground);">Previous Surgeries</strong>
+                  <p style="margin: 0 0 12px 0;">{{ p.previous_surgeries }}</p>
+                {% endif %}
+
+                {% if p.additional_medical_notes %}
+                  <strong style="display:block; margin-bottom:4px; color:var(--muted-foreground);">Additional Notes</strong>
+                  <p style="margin: 0 0 0 0;">{{ p.additional_medical_notes }}</p>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        {# Edit Medical History Form (hidden by default) #}
+        <form data-mh-form method="POST" action="{{ url_for('edit_medical_history', patient_id=p.id) }}" style="display: none; margin-top: 16px;">
+          {% set edit_conditions = [] %}
+          {% if p.medical_conditions_json %}{% set edit_conditions = p.medical_conditions_json|from_json %}{% endif %}
+          
+          <div style="margin-bottom: 16px;">
+            <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">Medical Conditions</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              {% for key, label in medical_condition_labels.items() %}
+                <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 0.8rem; cursor: pointer; font-weight: normal;">
+                  <input type="checkbox" name="medical_conditions" value="{{ key }}" class="med-cb-{{ p.id }}" {% if key in edit_conditions %}checked{% endif %} style="margin-top: 2px;">
+                  <span>{{ label }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          
+          <div class="field" id="otherDetailsField-{{ p.id }}" style="display: {% if 'other' in edit_conditions %}block{% else %}none{% endif %}; margin-bottom: 12px;">
+            <label for="med_other_{{ p.id }}" style="font-size: 0.8rem;">Other condition details</label>
+            <input type="text" id="med_other_{{ p.id }}" name="medical_other_details" class="input" value="{{ p.medical_other_details or '' }}">
+          </div>
+
+          <div class="field" style="margin-bottom: 12px;">
+            <label for="med_meds_{{ p.id }}" style="font-size: 0.8rem;">Current Medications</label>
+            <textarea id="med_meds_{{ p.id }}" name="current_medications" class="input" rows="2">{{ p.current_medications or '' }}</textarea>
+          </div>
+
+          <div class="field" style="margin-bottom: 12px;">
+            <label for="med_allergies_{{ p.id }}" style="font-size: 0.8rem;">Allergies</label>
+            <textarea id="med_allergies_{{ p.id }}" name="allergies" class="input" rows="2">{{ p.allergies or '' }}</textarea>
+          </div>
+
+          <div class="field" style="margin-bottom: 12px;">
+            <label for="med_surgeries_{{ p.id }}" style="font-size: 0.8rem;">Previous Surgeries</label>
+            <textarea id="med_surgeries_{{ p.id }}" name="previous_surgeries" class="input" rows="2">{{ p.previous_surgeries or '' }}</textarea>
+          </div>
+
+          <div class="field" style="margin-bottom: 16px;">
+            <label for="med_notes_{{ p.id }}" style="font-size: 0.8rem;">Additional Notes</label>
+            <textarea id="med_notes_{{ p.id }}" name="additional_medical_notes" class="input" rows="2">{{ p.additional_medical_notes or '' }}</textarea>
+          </div>
+
+          <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <button type="button" class="btn btn--ghost btn--small" onclick="(function(btn){var card=btn.closest('.patient-mini-card');card.querySelector('[data-mh-form]').style.display='none';card.querySelector('[data-mh-view]').style.display='block';card.querySelector('.mh-edit-btn').style.display='inline-flex';})(this)">Cancel</button>
+            <button type="submit" class="btn btn--primary btn--small">Save Medical History</button>
+          </div>
+        </form>
+      </div>
+
+      {# Private Notes #}
+      <div class="patient-mini-card" style="margin-bottom: 20px;">
         <div class="patient-mini-card__head">
           <h3 class="patient-mini-card__title">
             <span class="patient-mini-card__title-icon" aria-hidden="true">📝</span>
@@ -155,9 +259,6 @@
           </h3>
           <span class="patient-privacy-badge">🔒 Only you can see this</span>
         </div>
-        <p class="patient-mini-card__sub">
-          Personal reminders about this patient. Never shared with the patient or included in reports.
-        </p>
         <form method="POST" action="{{ url_for('save_patient_notes', patient_id=p.id) }}">
           <textarea class="patient-notes-textarea" name="private_notes" placeholder="Jot down anything you want to remember…">{{ p.private_notes or '' }}</textarea>
           <div class="patient-notes-footer">
@@ -173,12 +274,42 @@
         </form>
       </div>
 
-      <div class="patient-drawer-footer">
-        <div class="patient-drawer-footer__primary">
-          <a class="btn btn--primary btn--small" href="{{ url_for('new_analysis') }}?patient_id={{ p.id }}">New analysis</a>
-          <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=p.id) }}">View cases</a>
+      {# Cases List #}
+      <div class="patient-mini-card">
+        <div class="patient-mini-card__head">
+          <h3 class="patient-mini-card__title">
+            <span class="patient-mini-card__title-icon" aria-hidden="true">📂</span>
+            Cases
+          </h3>
+          <a class="btn btn--ghost btn--small" href="{{ url_for('patient_cases', patient_id=p.id) }}">View all cases →</a>
         </div>
+        
+        {% if p_cases %}
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+            {% for c in p_cases[:5] %}
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--card);">
+                <div>
+                  <div style="font-weight:600; font-size:0.9rem; margin-bottom:4px;">Case #{{ c.id }}</div>
+                  <div style="font-size:0.75rem; color:var(--muted-foreground);">{{ c.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                  {% set st = c.status %}
+                  <span class="patient-status-pill {% if st in ['REVIEWED','REVIWED','COMPLETED'] %}patient-status-pill--reviewed{% elif st in ['PENDING_REVIEW','PROCESSING','PENDING'] %}patient-status-pill--pending{% elif st in ['FAILED','NEEDS_REUPLOAD'] %}patient-status-pill--failed{% else %}patient-status-pill--default{% endif %}">
+                    {{ st.replace('_', ' ').title() }}
+                  </span>
+                  <a href="{{ url_for('view_result', case_id=c.id) }}" class="btn btn--ghost btn--small" style="padding: 4px 8px; font-size: 0.8rem;">Open</a>
+                </div>
+              </div>
+            {% endfor %}
+            {% if p_cases|length > 5 %}
+              <div style="text-align:center; font-size:0.8rem; color:var(--muted-foreground); margin-top:8px;">+ {{ p_cases|length - 5 }} more cases</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <p style="font-size: 0.85rem; color: var(--muted-foreground); margin: 10px 0;">No cases for this patient yet.</p>
+        {% endif %}
       </div>
+      
     </div>
   {% endfor %}
 
@@ -205,30 +336,71 @@
 </aside>
 
 <div class="da-modal-backdrop" id="addPatientModal">
-  <div class="da-modal">
+  <div class="da-modal" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
     <h3>Add new patient</h3>
     <form method="POST" action="{{ url_for('doctor_add_patient') }}">
-      <div class="field" style="margin-bottom:12px;">
-        <label for="ap_name">Patient name</label>
-        <input class="input" id="ap_name" type="text" name="name" required placeholder="e.g. Jana">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="field" style="margin-bottom:12px;">
+          <label for="ap_name">Patient name</label>
+          <input class="input" id="ap_name" type="text" name="name" required placeholder="e.g. Jana">
+        </div>
+        <div class="field" style="margin-bottom:12px;">
+          <label for="ap_code">Patient code</label>
+          <input class="input" id="ap_code" type="text" name="patient_code" required placeholder="e.g. PT-1043">
+        </div>
+        <div class="field" style="margin-bottom:12px;">
+          <label for="ap_age">Age (optional)</label>
+          <input class="input" id="ap_age" type="number" name="age" min="1" max="119" placeholder="14">
+        </div>
+        <div class="field" style="margin-bottom:16px;">
+          <label for="ap_gender">Gender (optional)</label>
+          <select class="input" id="ap_gender" name="gender">
+            <option value="">—</option>
+            <option value="MALE">Male</option>
+            <option value="FEMALE">Female</option>
+          </select>
+        </div>
       </div>
-      <div class="field" style="margin-bottom:12px;">
-        <label for="ap_code">Patient code</label>
-        <input class="input" id="ap_code" type="text" name="patient_code" required placeholder="e.g. PT-1043">
+
+      <h4 style="margin: 16px 0 8px; font-size: 1rem; border-top: 1px solid var(--border); padding-top: 16px;">Medical History</h4>
+      
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">Medical Conditions</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          {% for key, label in medical_condition_labels.items() %}
+            <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 0.8rem; cursor: pointer; font-weight: normal;">
+              <input type="checkbox" name="medical_conditions" value="{{ key }}" class="med-cb-new" style="margin-top: 2px;">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
       </div>
-      <div class="field" style="margin-bottom:12px;">
-        <label for="ap_age">Age (optional)</label>
-        <input class="input" id="ap_age" type="number" name="age" min="1" max="119" placeholder="14">
+      
+      <div class="field" id="otherDetailsField-new" style="display: none; margin-bottom: 12px;">
+        <label for="med_other_new" style="font-size: 0.8rem;">Other condition details</label>
+        <input type="text" id="med_other_new" name="medical_other_details" class="input">
       </div>
-      <div class="field" style="margin-bottom:16px;">
-        <label for="ap_gender">Gender (optional)</label>
-        <select class="input" id="ap_gender" name="gender">
-          <option value="">—</option>
-          <option value="MALE">Male</option>
-          <option value="FEMALE">Female</option>
-        </select>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="field" style="margin-bottom: 12px;">
+          <label for="med_meds_new" style="font-size: 0.8rem;">Current Medications</label>
+          <textarea id="med_meds_new" name="current_medications" class="input" rows="2"></textarea>
+        </div>
+        <div class="field" style="margin-bottom: 12px;">
+          <label for="med_allergies_new" style="font-size: 0.8rem;">Allergies</label>
+          <textarea id="med_allergies_new" name="allergies" class="input" rows="2"></textarea>
+        </div>
+        <div class="field" style="margin-bottom: 12px;">
+          <label for="med_surgeries_new" style="font-size: 0.8rem;">Previous Surgeries</label>
+          <textarea id="med_surgeries_new" name="previous_surgeries" class="input" rows="2"></textarea>
+        </div>
+        <div class="field" style="margin-bottom: 16px;">
+          <label for="med_notes_new" style="font-size: 0.8rem;">Additional Notes</label>
+          <textarea id="med_notes_new" name="additional_medical_notes" class="input" rows="2"></textarea>
+        </div>
       </div>
-      <div style="display:flex;gap:10px;justify-content:flex-end;">
+
+      <div style="display:flex;gap:10px;justify-content:flex-end; border-top: 1px solid var(--border); padding-top: 16px;">
         <button type="button" class="btn btn--ghost" id="closeAddPatientModal">Cancel</button>
         <button type="submit" class="btn btn--primary">Save patient</button>
       </div>
@@ -244,6 +416,51 @@
   var titleEl = document.getElementById("patientDrawerTitle");
   var subtitleEl = document.getElementById("patientDrawerSubtitle");
   var activeId = null;
+
+  function bindMedicalHistoryForm(container, idSuffix) {
+    var checkboxes = container.querySelectorAll(".med-cb-" + idSuffix);
+    var otherField = container.querySelector("#otherDetailsField-" + idSuffix);
+    var otherInput = container.querySelector("#med_other_" + idSuffix);
+    
+    if (!checkboxes.length) return;
+    
+    var noKnownCb = null;
+    var otherCb = null;
+    var conditionCbs = [];
+    
+    checkboxes.forEach(function(cb) {
+      if (cb.value === "no_known_conditions") noKnownCb = cb;
+      else if (cb.value === "other") otherCb = cb;
+      else conditionCbs.push(cb);
+    });
+
+    checkboxes.forEach(function(cb) {
+      cb.addEventListener("change", function() {
+        if (this === noKnownCb && this.checked) {
+          // If checking "no known", uncheck everything else
+          conditionCbs.forEach(function(c) { c.checked = false; });
+          if (otherCb) otherCb.checked = false;
+        } else if (this.checked && noKnownCb) {
+          // If checking anything else, uncheck "no known"
+          noKnownCb.checked = false;
+        }
+        
+        // Toggle other details field
+        if (otherCb && otherField) {
+          if (otherCb.checked) {
+            otherField.style.display = "block";
+            if (otherInput) otherInput.setAttribute("required", "required");
+          } else {
+            otherField.style.display = "none";
+            if (otherInput) {
+              otherInput.removeAttribute("required");
+              otherInput.value = "";
+            }
+          }
+        }
+      });
+    });
+  }
 
   function bindDrawerActions() {
     body.querySelectorAll("[data-copy-code]").forEach(function (btn) {
@@ -277,6 +494,11 @@
         }
       };
     });
+    
+    // Bind medical history logic for the drawer
+    if (activeId) {
+      bindMedicalHistoryForm(body, activeId);
+    }
   }
 
   function openPatient(id, name, code) {
@@ -336,9 +558,23 @@
   document.getElementById("closePatientDrawer")?.addEventListener("click", closePatient);
   backdrop?.addEventListener("click", closePatient);
 
-  document.getElementById("openAddPatientModalEmpty")?.addEventListener("click", function () {
+  function openAddModal() {
     document.getElementById("addPatientModal")?.classList.add("is-open");
+  }
+  function closeAddModal() {
+    document.getElementById("addPatientModal")?.classList.remove("is-open");
+  }
+  document.getElementById("openAddPatientModal")?.addEventListener("click", openAddModal);
+  document.getElementById("openAddPatientModalEmpty")?.addEventListener("click", openAddModal);
+  document.getElementById("closeAddPatientModal")?.addEventListener("click", closeAddModal);
+  document.getElementById("addPatientModal")?.addEventListener("click", function (e) {
+    if (e.target === this) closeAddModal();
   });
+
+  var addModal = document.getElementById("addPatientModal");
+  if (addModal) {
+    bindMedicalHistoryForm(addModal, "new");
+  }
 
   {% if selected_patient_id %}
   (function () {

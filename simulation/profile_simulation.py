@@ -109,8 +109,14 @@ def run_profile_simulation(
     """
     strength_norm = validate(approved_findings, selected_change_codes, strength)
 
+    # Use the clean display label (from the internal code) rather than the raw
+    # model-output string, so misleading model labels such as
+    # "Prominent chin / mandibular retrusion" are shown correctly as
+    # "Mandibular retrusion / retruded lower jaw" in the Gemini prompt.
     abnormal_labels = [
-        f.label for f in approved_findings if rules.is_abnormal(f.code)
+        rules.diagnosis_display_label(f.code)
+        for f in approved_findings
+        if rules.is_abnormal(f.code)
     ]
 
     prompt = prompt_builder.build_prompt(
