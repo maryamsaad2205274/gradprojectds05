@@ -13,6 +13,8 @@ build/
 dist/
 *.egg-info/
 .eggs/
+.claude/
+
 
 # ---- Virtual environments ----
 .venv/
@@ -46,3 +48,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 *.swp
+outputs/
